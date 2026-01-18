@@ -1,0 +1,6 @@
+package xctestleaks
+
+class App {
+
+
+}
