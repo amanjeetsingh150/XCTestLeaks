@@ -5,27 +5,37 @@ import xctestleaks.command.CommandRunner
 import java.time.Instant
 
 /**
- * Parameters for invoking the `leaks` tool.
+ * Parameters for invoking the `leaks` tool via xcrun simctl spawn.
  *
- * Exactly one of [pid] or [processName] must be non-null.
+ * Command format: xcrun simctl spawn <deviceId> leaks <pid|processName> [--exclude ...]
+ *
+ * Exactly one of [pid] or [processName] must be provided.
+ *
+ * @param pid The process ID to analyze.
+ * @param processName The name of the process to analyze (e.g., "Client").
+ * @param deviceId The simulator device ID or "booted" for the currently booted simulator.
+ * @param excludeSymbols Symbols to exclude from leak detection (passed as --exclude flags).
  */
 @Serializable
 data class LeaksInvocationParams(
     val pid: Int? = null,
     val processName: String? = null,
+    val deviceId: String = "booted",
+    val excludeSymbols: List<String> = emptyList(),
 ) {
     init {
-        val nonNullCount = listOf(pid, processName).count { it != null }
-        require(nonNullCount == 1) {
-            "Exactly one of pid or processName must be provided (got pid=$pid, processName=$processName)"
+        require((pid != null) xor (processName != null)) {
+            "Exactly one of pid or processName must be provided"
         }
     }
 
-    override fun toString(): String =
-        when {
-            pid != null -> "pid=$pid"
-            else -> "processName=$processName"
-        }
+    /** Returns the target identifier (PID or process name) for the leaks command. */
+    val target: String get() = pid?.toString() ?: processName!!
+
+    override fun toString(): String {
+        val targetStr = if (pid != null) "pid=$pid" else "process=$processName"
+        return "$targetStr, device=$deviceId"
+    }
 }
 
 /**
@@ -58,15 +68,16 @@ interface LeaksTool {
 }
 
 /**
- * Default implementation that expects `leaks` to be on PATH.
+ * Implementation that runs leaks via xcrun simctl spawn for iOS simulators.
  *
- * Example commands used:
- *  - leaks 1234
- *  - leaks MyProcessName
+ * Command format: xcrun simctl spawn <deviceId> leaks <processName> [--exclude ...]
+ *
+ * Example:
+ *   xcrun simctl spawn booted leaks Client
+ *   xcrun simctl spawn booted leaks Client --exclude KnownLeak
  */
 class XCTestLeaksTool(
     private val commandRunner: CommandRunner,
-    private val leaksExecutable: String = "leaks",
 ) : LeaksTool {
 
     override fun runLeaks(params: LeaksInvocationParams): LeaksRawResult {
@@ -84,10 +95,16 @@ class XCTestLeaksTool(
     }
 
     private fun buildCommand(params: LeaksInvocationParams): List<String> {
-        return when {
-            params.pid != null -> listOf(leaksExecutable, params.pid.toString())
-            params.processName != null -> listOf(leaksExecutable, params.processName)
-            else -> error("Invalid LeaksInvocationParams: $params")
-        }
+        // xcrun simctl spawn <deviceId> leaks <pid|processName> [--exclude ...]
+        val baseCommand = listOf(
+            "xcrun", "simctl", "spawn",
+            params.deviceId,
+            "leaks",
+            params.target,
+        )
+
+        val excludeArgs = params.excludeSymbols.flatMap { listOf("--exclude", it) }
+
+        return baseCommand + excludeArgs
     }
 }
