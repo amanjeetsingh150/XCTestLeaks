@@ -1,5 +1,6 @@
 package xctestleaks
 
+import kotlinx.serialization.Serializable
 import xctestleaks.command.CommandRunner
 import java.time.Instant
 
@@ -8,6 +9,7 @@ import java.time.Instant
  *
  * Exactly one of [pid] or [processName] must be non-null.
  */
+@Serializable
 data class LeaksInvocationParams(
     val pid: Int? = null,
     val processName: String? = null,

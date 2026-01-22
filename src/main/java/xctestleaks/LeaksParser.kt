@@ -1,6 +1,30 @@
 package xctestleaks
 
+import kotlinx.serialization.KSerializer
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.descriptors.PrimitiveKind
+import kotlinx.serialization.descriptors.PrimitiveSerialDescriptor
+import kotlinx.serialization.descriptors.SerialDescriptor
+import kotlinx.serialization.encoding.Decoder
+import kotlinx.serialization.encoding.Encoder
+import kotlinx.serialization.json.Json
 import java.time.Instant
+
+/**
+ * Custom serializer for java.time.Instant to ISO-8601 string format.
+ */
+object InstantSerializer : KSerializer<Instant> {
+    override val descriptor: SerialDescriptor =
+        PrimitiveSerialDescriptor("Instant", PrimitiveKind.STRING)
+
+    override fun serialize(encoder: Encoder, value: Instant) {
+        encoder.encodeString(value.toString())
+    }
+
+    override fun deserialize(decoder: Decoder): Instant {
+        return Instant.parse(decoder.decodeString())
+    }
+}
 
 /**
  * Simple string tokenizer that splits by whitespace without using regex.
@@ -75,6 +99,7 @@ fun String.splitByWhitespace(): List<String> {
 /**
  * Type of leak detected by the leaks tool.
  */
+@Serializable
 enum class LeakType {
     /** A standalone memory leak (no reference cycle). */
     ROOT_LEAK,
@@ -177,6 +202,7 @@ sealed interface LeaksToken {
 /**
  * Direct child metadata under a ROOT LEAK.
  */
+@Serializable
 data class RootLeakChildInfo(
     val count: Int,
     val sizeHumanReadable: String,
@@ -196,6 +222,7 @@ data class RootLeakChildInfo(
  * The original fields [address], [sizeBytes], [type], [stackTrace] are kept for backwards
  * compatibility and may be null/empty for this format.
  */
+@Serializable
 data class LeakInstance(
     val address: String?,
     val sizeBytes: Long?,
@@ -210,11 +237,23 @@ data class LeakInstance(
     val children: List<RootLeakChildInfo> = emptyList(),
 )
 
+/** Configured Json instance for serialization. */
+private val jsonPretty = Json {
+    prettyPrint = true
+    encodeDefaults = true
+}
+private val jsonCompact = Json {
+    prettyPrint = false
+    encodeDefaults = true
+}
+
 /**
  * Structured representation of one full leaks report.
  */
+@Serializable
 data class LeaksReport(
     val params: LeaksInvocationParams,
+    @Serializable(with = InstantSerializer::class)
     val invocationTime: Instant,
     val leaks: List<LeakInstance>,
     val summary: Map<String, String>,
@@ -239,6 +278,12 @@ data class LeaksReport(
     /** Returns a new report filtered by the specified leak type. */
     fun filterByType(type: LeakType): LeaksReport =
         copy(leaks = leaks.filter { it.leakType == type })
+
+    /** Serialize this report to a compact JSON string. */
+    fun toJson(): String = jsonCompact.encodeToString(serializer(), this)
+
+    /** Serialize this report to a pretty-printed JSON string. */
+    fun toJsonPretty(): String = jsonPretty.encodeToString(serializer(), this)
 }
 
 /**
