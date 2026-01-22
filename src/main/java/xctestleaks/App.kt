@@ -33,17 +33,71 @@ enum class LeakFilter {
 }
 
 /**
+ * HTTP server subcommand - starts a server that can be called from XCTest.
+ *
+ * Usage:
+ *   xctestleaks serve                          # Start server on localhost:8080
+ *   xctestleaks serve --port 9090              # Start on custom port
+ *
+ * Then call from XCTest:
+ *   GET http://localhost:8080/leaks?process=Client&filter=cycles
+ */
+@Command(
+    name = "serve",
+    mixinStandardHelpOptions = true,
+    description = ["Start HTTP server for XCTest integration."],
+)
+class ServeCommand : Callable<Int> {
+
+    @Option(
+        names = ["--port"],
+        description = ["Port to listen on (default: \${DEFAULT-VALUE})."],
+        defaultValue = "8080",
+    )
+    var port: Int = 8080
+
+    @Option(
+        names = ["--host"],
+        description = ["Host to bind to (default: \${DEFAULT-VALUE})."],
+        defaultValue = "localhost",
+    )
+    var host: String = "localhost"
+
+    override fun call(): Int {
+        val server = LeaksServer(port = port, host = host)
+
+        // Handle shutdown gracefully
+        Runtime.getRuntime().addShutdownHook(Thread {
+            println("\nShutting down...")
+            server.stop()
+        })
+
+        server.start()
+
+        // Block until interrupted
+        try {
+            server.awaitTermination()
+        } catch (e: InterruptedException) {
+            // Normal shutdown
+        }
+
+        return 0
+    }
+}
+
+/**
  * CLI wrapper for the macOS `leaks` command with parsing and filtering capabilities.
  *
  * Runs leaks via: xcrun simctl spawn <device> leaks <pid|processName>
  *
  * Usage examples:
- *   xctestleaks Client                         # Analyze "Client" process on booted simulator
- *   xctestleaks -p 12345                       # Analyze by PID
- *   xctestleaks Client --device <UUID>         # Analyze on specific simulator
- *   xctestleaks Client --format json           # Output as JSON
- *   xctestleaks Client --filter cycles         # Show only retain cycles
- *   xctestleaks Client --exclude "KnownLeak"   # Exclude known leaks
+ *   xctestleaks Client # Analyze "Client" process on booted simulator
+ *   xctestleaks -p 12345 # Analyze by PID
+ *   xctestleaks Client --device <UUID> # Analyze on specific simulator
+ *   xctestleaks Client --format JSON # Output as JSON
+ *   xctestleaks Client --filter cycles # Show only retain cycles
+ *   xctestleaks Client --exclude "KnownLeak" # Exclude known leaks
+ *   xctestleaks serve # Start HTTP server for XCTest
  */
 @Command(
     name = "xctestleaks",
@@ -55,6 +109,7 @@ enum class LeakFilter {
         "Runs: xcrun simctl spawn <device> leaks <pid|processName>",
         "Provides structured output with filtering for root leaks vs retain cycles.",
     ],
+    subcommands = [ServeCommand::class],
 )
 class App : Callable<Int> {
 
