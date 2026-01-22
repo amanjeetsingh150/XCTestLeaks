@@ -251,4 +251,154 @@ class LeaksParserTest {
         assertEquals("__strong wrappedManager", child.fieldName)
         assertEquals("WindowManagerImplementation", child.typeName)
     }
+
+    @Test
+    fun `parse ROOT CYCLE line extracts all fields correctly`() {
+        val input = """
+            7 (1.25K) ROOT CYCLE: <MockNotificationCenter 0x60000331b0c0> [160]
+        """.trimIndent()
+
+        val report = parser.parse(createRawResult(input))
+
+        assertEquals(1, report.leaks.size)
+        val leak = report.leaks[0]
+        assertEquals(LeakType.ROOT_CYCLE, leak.leakType)
+        assertEquals(7, leak.rootCount)
+        assertEquals("1.25K", leak.rootSizeHumanReadable)
+        assertEquals("MockNotificationCenter", leak.rootTypeName)
+        assertEquals(160, leak.rootInstanceSizeBytes)
+    }
+
+    @Test
+    fun `parse ROOT CYCLE with children referencing another cycle`() {
+        val input = """
+            7 (1.25K) ROOT CYCLE: <MockNotificationCenter 0x60000331b0c0> [160]
+               6 (1.09K) savePostObject --> ROOT CYCLE: <RustPlaces 0x600003335a40> [160]
+        """.trimIndent()
+
+        val report = parser.parse(createRawResult(input))
+
+        assertEquals(1, report.leaks.size)
+        val leak = report.leaks[0]
+        assertEquals(LeakType.ROOT_CYCLE, leak.leakType)
+        assertEquals(1, leak.children.size)
+
+        val child = leak.children[0]
+        assertEquals("savePostObject", child.fieldName)
+        assertEquals("RustPlaces", child.typeName)
+    }
+
+    @Test
+    fun `ROOT LEAK has correct leak type`() {
+        val input = """
+            32 (3.66K) ROOT LEAK: <ToolbarMiddleware 0x1049065c0> [432]
+        """.trimIndent()
+
+        val report = parser.parse(createRawResult(input))
+
+        assertEquals(1, report.leaks.size)
+        assertEquals(LeakType.ROOT_LEAK, report.leaks[0].leakType)
+    }
+
+    @Test
+    fun `parse mixed ROOT LEAK and ROOT CYCLE`() {
+        val input = """
+            32 (3.66K) ROOT LEAK: <ToolbarMiddleware 0x1049065c0> [432]
+
+            7 (1.25K) ROOT CYCLE: <MockNotificationCenter 0x60000331b0c0> [160]
+
+            30 (3.48K) ROOT LEAK: <ToolbarMiddleware 0x1049138a0> [432]
+        """.trimIndent()
+
+        val report = parser.parse(createRawResult(input))
+
+        assertEquals(3, report.leaks.size)
+        assertEquals(LeakType.ROOT_LEAK, report.leaks[0].leakType)
+        assertEquals(LeakType.ROOT_CYCLE, report.leaks[1].leakType)
+        assertEquals(LeakType.ROOT_LEAK, report.leaks[2].leakType)
+    }
+
+    @Test
+    fun `filterRootLeaks returns only ROOT_LEAK instances`() {
+        val input = """
+            32 (3.66K) ROOT LEAK: <ToolbarMiddleware 0x1049065c0> [432]
+            7 (1.25K) ROOT CYCLE: <MockNotificationCenter 0x60000331b0c0> [160]
+            30 (3.48K) ROOT LEAK: <ToolbarMiddleware 0x1049138a0> [432]
+        """.trimIndent()
+
+        val report = parser.parse(createRawResult(input))
+        val leaksOnly = report.filterRootLeaks()
+
+        assertEquals(2, leaksOnly.leaks.size)
+        assertTrue(leaksOnly.leaks.all { it.leakType == LeakType.ROOT_LEAK })
+    }
+
+    @Test
+    fun `filterRootCycles returns only ROOT_CYCLE instances`() {
+        val input = """
+            32 (3.66K) ROOT LEAK: <ToolbarMiddleware 0x1049065c0> [432]
+            7 (1.25K) ROOT CYCLE: <MockNotificationCenter 0x60000331b0c0> [160]
+            5 (800 bytes) ROOT CYCLE: <SomeOtherCycle 0x600003335a40> [80]
+        """.trimIndent()
+
+        val report = parser.parse(createRawResult(input))
+        val cyclesOnly = report.filterRootCycles()
+
+        assertEquals(2, cyclesOnly.leaks.size)
+        assertTrue(cyclesOnly.leaks.all { it.leakType == LeakType.ROOT_CYCLE })
+    }
+
+    @Test
+    fun `rootLeaksOnly and rootCyclesOnly return correct lists`() {
+        val input = """
+            32 (3.66K) ROOT LEAK: <ToolbarMiddleware 0x1049065c0> [432]
+            7 (1.25K) ROOT CYCLE: <MockNotificationCenter 0x60000331b0c0> [160]
+        """.trimIndent()
+
+        val report = parser.parse(createRawResult(input))
+
+        assertEquals(1, report.rootLeaksOnly().size)
+        assertEquals(1, report.rootCyclesOnly().size)
+        assertEquals("ToolbarMiddleware", report.rootLeaksOnly()[0].rootTypeName)
+        assertEquals("MockNotificationCenter", report.rootCyclesOnly()[0].rootTypeName)
+    }
+
+    @Test
+    fun `filterByType filters correctly`() {
+        val input = """
+            32 (3.66K) ROOT LEAK: <ToolbarMiddleware 0x1049065c0> [432]
+            7 (1.25K) ROOT CYCLE: <MockNotificationCenter 0x60000331b0c0> [160]
+        """.trimIndent()
+
+        val report = parser.parse(createRawResult(input))
+
+        val leaks = report.filterByType(LeakType.ROOT_LEAK)
+        val cycles = report.filterByType(LeakType.ROOT_CYCLE)
+
+        assertEquals(1, leaks.leaks.size)
+        assertEquals(1, cycles.leaks.size)
+        assertEquals(LeakType.ROOT_LEAK, leaks.leaks[0].leakType)
+        assertEquals(LeakType.ROOT_CYCLE, cycles.leaks[0].leakType)
+    }
+
+    @Test
+    fun `parse sample file identifies ROOT CYCLES`() {
+        val sampleContent = javaClass.getResource("/sample_leaks_root_retain_cycles.txt")?.readText()
+            ?: error("Sample file not found")
+
+        val report = parser.parse(createRawResult(sampleContent))
+
+        val rootLeaks = report.rootLeaksOnly()
+        val rootCycles = report.rootCyclesOnly()
+
+        assertTrue(rootLeaks.isNotEmpty(), "Sample should contain ROOT LEAKs")
+        assertTrue(rootCycles.isNotEmpty(), "Sample should contain ROOT CYCLEs")
+
+        rootLeaks.forEach { leak ->
+            assertEquals(LeakType.ROOT_LEAK, leak.leakType)
+        }
+        rootCycles.forEach { cycle ->
+            assertEquals(LeakType.ROOT_CYCLE, cycle.leakType)
+        }
+    }
 }

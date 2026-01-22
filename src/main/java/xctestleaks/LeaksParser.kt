@@ -73,6 +73,16 @@ fun String.splitByWhitespace(): List<String> {
 }
 
 /**
+ * Type of leak detected by the leaks tool.
+ */
+enum class LeakType {
+    /** A standalone memory leak (no reference cycle). */
+    ROOT_LEAK,
+    /** A retain cycle where objects hold strong references to each other. */
+    ROOT_CYCLE,
+}
+
+/**
  * Tokens representing lines or sections in a `leaks` output.
  * Adjust and extend as you learn more patterns from real output.
  */
@@ -111,6 +121,19 @@ sealed interface LeaksToken {
      *   32 (3.66K) ROOT LEAK: <ToolbarMiddleware 0x1049065c0> [432]
      */
     data class RootLeak(
+        override val rawLine: String,
+        val count: Int,
+        val sizeHumanReadable: String,
+        val typeName: String,
+        val address: String,
+        val instanceSizeBytes: Int,
+    ) : LeaksToken
+
+    /**
+     * A "ROOT CYCLE" entry like:
+     *   7 (1.25K) ROOT CYCLE: <MockNotificationCenter 0x60000331b0c0> [160]
+     */
+    data class RootCycle(
         override val rawLine: String,
         val count: Int,
         val sizeHumanReadable: String,
@@ -166,6 +189,7 @@ data class RootLeakChildInfo(
  * A single suspicious leak instance extracted from the output.
  *
  * For the root-retain-cycles format, these fields are populated:
+ *  - [leakType] indicates whether this is a ROOT_LEAK or ROOT_CYCLE
  *  - [rootCount], [rootSizeHumanReadable], [rootTypeName], [rootInstanceSizeBytes]
  *  - [children] contains the direct children like windowManager, recentSearchProvider, logger, ...
  *
@@ -178,6 +202,7 @@ data class LeakInstance(
     val type: String?,
     val stackTrace: List<String>,
     val rawLines: List<String>,
+    val leakType: LeakType = LeakType.ROOT_LEAK,
     val rootCount: Int? = null,
     val rootSizeHumanReadable: String? = null,
     val rootTypeName: String? = null,
@@ -194,7 +219,27 @@ data class LeaksReport(
     val leaks: List<LeakInstance>,
     val summary: Map<String, String>,
     val rawOutput: String,
-)
+) {
+    /** Returns only the ROOT_LEAK instances (standalone leaks, not cycles). */
+    fun rootLeaksOnly(): List<LeakInstance> =
+        leaks.filter { it.leakType == LeakType.ROOT_LEAK }
+
+    /** Returns only the ROOT_CYCLE instances (retain cycles). */
+    fun rootCyclesOnly(): List<LeakInstance> =
+        leaks.filter { it.leakType == LeakType.ROOT_CYCLE }
+
+    /** Returns a new report containing only ROOT_LEAK instances. */
+    fun filterRootLeaks(): LeaksReport =
+        copy(leaks = rootLeaksOnly())
+
+    /** Returns a new report containing only ROOT_CYCLE instances. */
+    fun filterRootCycles(): LeaksReport =
+        copy(leaks = rootCyclesOnly())
+
+    /** Returns a new report filtered by the specified leak type. */
+    fun filterByType(type: LeakType): LeaksReport =
+        copy(leaks = leaks.filter { it.leakType == type })
+}
 
 /**
  * Parser abstraction: takes raw `leaks` stdout and turns it into [LeaksReport].
@@ -231,6 +276,7 @@ class TokenBasedLeaksParser : LeaksParser {
         var currentRootSizeHuman: String? = null
         var currentRootTypeName: String? = null
         var currentRootInstanceSize: Int? = null
+        var currentLeakType: LeakType = LeakType.ROOT_LEAK
 
         fun flushCurrentRootLeak() {
             if (currentRootCount != null && currentRootTypeName != null) {
@@ -240,6 +286,7 @@ class TokenBasedLeaksParser : LeaksParser {
                     type = currentRootTypeName,
                     stackTrace = emptyList(),
                     rawLines = currentRawLines.toList(),
+                    leakType = currentLeakType,
                     rootCount = currentRootCount,
                     rootSizeHumanReadable = currentRootSizeHuman,
                     rootTypeName = currentRootTypeName,
@@ -253,6 +300,7 @@ class TokenBasedLeaksParser : LeaksParser {
             currentRootSizeHuman = null
             currentRootTypeName = null
             currentRootInstanceSize = null
+            currentLeakType = LeakType.ROOT_LEAK
         }
 
         for (token in tokens) {
@@ -269,6 +317,17 @@ class TokenBasedLeaksParser : LeaksParser {
 
                 is LeaksToken.RootLeak -> {
                     flushCurrentRootLeak()
+                    currentLeakType = LeakType.ROOT_LEAK
+                    currentRootCount = token.count
+                    currentRootSizeHuman = token.sizeHumanReadable
+                    currentRootTypeName = token.typeName
+                    currentRootInstanceSize = token.instanceSizeBytes
+                    currentRawLines.add(token.rawLine)
+                }
+
+                is LeaksToken.RootCycle -> {
+                    flushCurrentRootLeak()
+                    currentLeakType = LeakType.ROOT_CYCLE
                     currentRootCount = token.count
                     currentRootSizeHuman = token.sizeHumanReadable
                     currentRootTypeName = token.typeName
@@ -335,10 +394,14 @@ class TokenBasedLeaksParser : LeaksParser {
                 // ROOT LEAK line identified by the marker "ROOT LEAK:"
                 "ROOT LEAK:" in trimmed -> parseRootLeak(line, trimmed)
 
+                // ROOT CYCLE line identified by the marker "ROOT CYCLE:" (without arrow)
+                // Child lines can also contain "ROOT CYCLE:" after "-->", so we exclude those
+                "ROOT CYCLE:" in trimmed && "-->" !in trimmed -> parseRootCycle(line, trimmed)
+
                 // TOTAL line: "875 (101K) << TOTAL >>"
                 "<< TOTAL >>" in trimmed -> parseTotalLine(line, trimmed)
 
-                // Child under a ROOT LEAK: has "-->" but no "ROOT LEAK:"
+                // Child under a ROOT LEAK/CYCLE: has "-->"
                 "-->" in trimmed -> parseRootLeakChild(line)
 
                 // Bare child (no arrow): starts with digits and has address pattern
@@ -435,6 +498,31 @@ class TokenBasedLeaksParser : LeaksParser {
         val instanceSizeBytes = parseInstanceSize(right)
 
         return LeaksToken.RootLeak(
+            rawLine = rawLine,
+            count = count,
+            sizeHumanReadable = sizeHuman,
+            typeName = typeName,
+            address = address,
+            instanceSizeBytes = instanceSizeBytes,
+        )
+    }
+
+    /**
+     * Parse a ROOT CYCLE line using simple string operations.
+     *
+     * Example:
+     *   "7 (1.25K) ROOT CYCLE: <MockNotificationCenter 0x60000331b0c0> [160]"
+     */
+    private fun parseRootCycle(rawLine: String, trimmed: String): LeaksToken.RootCycle {
+        val markerIndex = trimmed.indexOf("ROOT CYCLE:")
+        val left = trimmed.substring(0, markerIndex).trim()
+        val right = trimmed.substring(markerIndex + "ROOT CYCLE:".length).trim()
+
+        val (count, sizeHuman) = parseCountAndSize(left)
+        val (typeName, address) = parseTypeAndAddress(right)
+        val instanceSizeBytes = parseInstanceSize(right)
+
+        return LeaksToken.RootCycle(
             rawLine = rawLine,
             count = count,
             sizeHumanReadable = sizeHuman,
