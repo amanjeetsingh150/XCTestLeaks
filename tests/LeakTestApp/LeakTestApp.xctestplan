@@ -1,0 +1,30 @@
+{
+  "configurations" : [
+    {
+      "id" : "99921E1B-4CD8-4EDB-8392-838D09773AA2",
+      "name" : "Test Scheme Action",
+      "options" : {
+
+      }
+    }
+  ],
+  "defaultOptions" : {
+    "performanceAntipatternCheckerEnabled" : true,
+    "targetForVariableExpansion" : {
+      "containerPath" : "container:LeakTestApp.xcodeproj",
+      "identifier" : "A10000012300000000000003",
+      "name" : "LeakTestApp"
+    }
+  },
+  "testTargets" : [
+    {
+      "parallelizable" : false,
+      "target" : {
+        "containerPath" : "container:LeakTestApp.xcodeproj",
+        "identifier" : "A10000012300000000000018",
+        "name" : "LeakTestAppTests"
+      }
+    }
+  ],
+  "version" : 1
+}
