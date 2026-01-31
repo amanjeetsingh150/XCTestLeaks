@@ -65,6 +65,8 @@ class HtmlReportGenerator {
 
         val rootLeaks = report.leaks.filter { it.leakType == LeakType.ROOT_LEAK }
         val rootCycles = report.leaks.filter { it.leakType == LeakType.ROOT_CYCLE }
+        // Get test name from first leak (all leaks in a report come from same test)
+        val testName = report.leaks.firstOrNull()?.testName
 
         return """
 <!DOCTYPE html>
@@ -122,6 +124,16 @@ class HtmlReportGenerator {
         .timestamp {
             color: var(--text-secondary);
             font-size: 0.9rem;
+        }
+
+        .test-name-header {
+            color: var(--accent-blue);
+            font-size: 1.1rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .test-name-header strong {
+            color: var(--text-primary);
         }
 
         .summary-grid {
@@ -226,6 +238,16 @@ class HtmlReportGenerator {
         .leak-type.leak {
             background: var(--accent-red);
             color: #fff;
+        }
+
+        .test-name {
+            background: var(--accent-blue);
+            color: #fff;
+            padding: 0.2rem 0.5rem;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            margin-left: 0.5rem;
         }
 
         .leak-body {
@@ -493,6 +515,9 @@ class HtmlReportGenerator {
             val artifact = artifactsByName[sanitizedName]
             val leakTypeClass = if (leak.leakType == LeakType.ROOT_CYCLE) "cycle" else "leak"
             val leakTypeLabel = if (leak.leakType == LeakType.ROOT_CYCLE) "RETAIN CYCLE" else "ROOT LEAK"
+            val testNameHtml = leak.testName?.let {
+                """<span class="test-name">📋 ${escapeHtml(it)}</span>"""
+            } ?: ""
 
             val childrenHtml = if (leak.children.isNotEmpty()) {
                 val childItems = leak.children.joinToString("\n") { child ->
@@ -528,6 +553,7 @@ class HtmlReportGenerator {
                     <div>
                         <span class="leak-type $leakTypeClass">$leakTypeLabel</span>
                         <span class="leak-title">${escapeHtml(typeName)}</span>
+                        $testNameHtml
                     </div>
                     <div class="leak-meta">
                         <span>${leak.rootCount ?: 1} instance(s)</span>
@@ -542,6 +568,7 @@ class HtmlReportGenerator {
                         <button class="tab" data-tab="json-$index">JSON</button>
                     </div>
                     <div id="info-$index" class="tab-content active">
+                        ${leak.testName?.let { "<p><strong>Test:</strong> ${escapeHtml(it)}</p>" } ?: ""}
                         <p><strong>Type:</strong> ${escapeHtml(typeName)}</p>
                         <p><strong>Instance Size:</strong> ${leak.rootInstanceSizeBytes ?: "N/A"} bytes</p>
                         $childrenHtml

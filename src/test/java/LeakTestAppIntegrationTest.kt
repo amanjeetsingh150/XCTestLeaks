@@ -142,17 +142,17 @@ class LeakTestAppIntegrationTest {
         assertTrue(isServerHealthy(), "Server must still be healthy after build")
         println("✓ Server still healthy")
 
-        // Step 4: Run tests to trigger leaks
-        // The Swift test will:
+        // Step 4: Run ALL tests to trigger leaks
+        // Each Swift test will:
         //   1. Call triggerLeaks() to create retain cycles
-        //   2. Call /leaks endpoint on the server
-        //   3. Server processes the request and writes artifacts to artifactsDir
-        println("Step 4: Running LeakTestApp tests (Swift test will trigger leaks and call /leaks endpoint)...")
+        //   2. Call /leaks endpoint with its own testName
+        //   3. Server processes the request and writes artifacts
+        println("Step 4: Running ALL LeakTestApp tests...")
         val testResult = xcodebuildRunner.test(
             project = testAppProject,
             scheme = testAppScheme,
-            destination = simulatorDestination,
-            onlyTesting = "LeakTestAppTests/LeakDetectionTests/testDetectRetainCycleLeaks"
+            destination = simulatorDestination
+            // No onlyTesting - runs all tests
         )
         println("Test exit code: ${testResult.exitCode}")
 
@@ -181,7 +181,19 @@ class LeakTestAppIntegrationTest {
         if (containsLeakyWorker) println("✓ Detected LeakyWorker in artifacts")
         if (containsLeakyClosureHolder) println("✓ Detected LeakyClosureHolder in artifacts")
 
-        // Verify per-leak artifact structure
+        // Step 6: Validate testName is correctly set in leak JSON
+        println("Step 6: Validating testName in leak instances...")
+
+        // Check that BOTH testNames appear in the report
+        val hasRetainCycleTestInJson = reportContent.contains("testDetectRetainCycleLeaks")
+        val hasClosureTestInJson = reportContent.contains("testDetectClosureLeaks")
+
+        println("  testDetectRetainCycleLeaks in JSON: $hasRetainCycleTestInJson")
+        println("  testDetectClosureLeaks in JSON: $hasClosureTestInJson")
+
+        assertTrue(hasRetainCycleTestInJson && hasClosureTestInJson, "Leak report should contain BOTH test names")
+
+        // Verify per-leak artifact structure and testName
         val leaksDir = artifactsDir.resolve("leaks").toFile()
         if (leaksDir.exists()) {
             val leakDirs = leaksDir.listFiles()?.filter { it.isDirectory } ?: emptyList()
@@ -196,12 +208,20 @@ class LeakTestAppIntegrationTest {
                 assertTrue(rawFile.exists(), "Leak dir ${leakDir.name} should have raw.txt")
                 assertTrue(jsonFile.exists(), "Leak dir ${leakDir.name} should have leak.json")
 
-                println("  ✓ ${leakDir.name}: info.txt, raw.txt, leak.json")
+                // Validate testName in individual leak JSON
+                val leakJson = jsonFile.readText()
+                val leakHasTestName = leakJson.contains("\"testName\"")
+                assertTrue(leakHasTestName, "Leak ${leakDir.name} should have testName in JSON")
+
+                // Extract and print testName for verification
+                val testNameMatch = Regex("\"testName\"\\s*:\\s*\"([^\"]+)\"").find(leakJson)
+                val testName = testNameMatch?.groupValues?.get(1) ?: "null"
+                println("  ✓ ${leakDir.name}: testName=$testName")
             }
         }
 
-        // Step 6: Generate HTML report
-        println("Step 6: Generating HTML report...")
+        // Step 7: Generate HTML report
+        println("Step 7: Generating HTML report...")
         val htmlGenerator = HtmlReportGenerator()
         val htmlReportFile = artifactsDir.resolve("report.html").toFile()
 
@@ -216,6 +236,15 @@ class LeakTestAppIntegrationTest {
             htmlContent.contains("LeakyManager") || htmlContent.contains("LeakyWorker") || htmlContent.contains("LeakyClosureHolder"),
             "HTML report should contain leak type names"
         )
+
+        // Verify BOTH testNames appear in HTML (not just one)
+        val hasRetainCycleTest = htmlContent.contains("testDetectRetainCycleLeaks")
+        val hasClosureTest = htmlContent.contains("testDetectClosureLeaks")
+
+        println("  testDetectRetainCycleLeaks in HTML: $hasRetainCycleTest")
+        println("  testDetectClosureLeaks in HTML: $hasClosureTest")
+
+        assertTrue(hasRetainCycleTest && hasClosureTest, "HTML report should contain BOTH test names")
 
         println("✓ HTML report generated: ${htmlReportFile.absolutePath}")
     }

@@ -25,8 +25,8 @@ final class LeakDetectionTests: XCTestCase {
         // Give some time for memory to settle
         Thread.sleep(forTimeInterval: 0.5)
 
-        // Now query the server to detect leaks
-        let leaksResult = try queryLeaksServer(filter: "cycles")
+        // Now query the server to detect leaks, passing the test name
+        let leaksResult = try queryLeaksServer(filter: "cycles", testName: "testDetectRetainCycleLeaks")
 
         // Parse and verify the response
         XCTAssertNotNil(leaksResult, "Should receive a response from leaks server")
@@ -38,12 +38,33 @@ final class LeakDetectionTests: XCTestCase {
         // In a real test, you'd parse the JSON and assert on specific leak types
     }
 
+    /// Second test that triggers closure-based leaks
+    func testDetectClosureLeaks() throws {
+        // Trigger closure-based leaks
+        triggerLeaks()
+
+        // Give some time for memory to settle
+        Thread.sleep(forTimeInterval: 0.5)
+
+        // Query the server with a different test name
+        let leaksResult = try queryLeaksServer(filter: "cycles", testName: "testDetectClosureLeaks")
+
+        // Parse and verify the response
+        XCTAssertNotNil(leaksResult, "Should receive a response from leaks server")
+
+        // Log the result for debugging
+        print("Leaks server response for closure test: \(leaksResult)")
+    }
+
     // MARK: - Server Query Helpers
 
     /// Query the /leaks endpoint on the server
-    func queryLeaksServer(filter: String = "cycles", format: String = "json") throws -> String {
+    func queryLeaksServer(filter: String = "cycles", format: String = "json", testName: String? = nil) throws -> String {
         let processName = "LeakTestApp"
-        let urlString = "\(serverBaseURL)/leaks?process=\(processName)&filter=\(filter)&format=\(format)"
+        var urlString = "\(serverBaseURL)/leaks?process=\(processName)&filter=\(filter)&format=\(format)"
+        if let testName = testName {
+            urlString += "&testName=\(testName)"
+        }
 
         guard let url = URL(string: urlString) else {
             throw LeakTestError.invalidURL

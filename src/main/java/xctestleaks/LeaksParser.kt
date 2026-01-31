@@ -235,6 +235,7 @@ data class LeakInstance(
     val rootTypeName: String? = null,
     val rootInstanceSizeBytes: Int? = null,
     val children: List<RootLeakChildInfo> = emptyList(),
+    val testName: String? = null,
 )
 
 /** Configured Json instance for serialization. */

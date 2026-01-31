@@ -87,6 +87,7 @@ class LeaksServer(
             val excludeSymbols = queryParams.entries
                 .filter { it.key == "exclude" }
                 .map { it.value }
+            val testName = queryParams["testName"]
 
             // Validate
             if (processName == null && pid == null) {
@@ -133,13 +134,21 @@ class LeaksServer(
             val leaksTool = XCTestLeaksTool(commandRunner)
             val rawResult = leaksTool.runLeaks(params)
 
-            // Parse and filter
+            // Parse and add testName to each leak
             val parser = TokenBasedLeaksParser()
-            val report = parser.parse(rawResult)
+            val parsedReport = parser.parse(rawResult)
+
+            // Add testName to each leak instance
+            val reportWithTestName = if (testName != null) {
+                parsedReport.copy(leaks = parsedReport.leaks.map { it.copy(testName = testName) })
+            } else {
+                parsedReport
+            }
+
             val filteredReport = when (filter) {
-                LeakFilter.ALL -> report
-                LeakFilter.LEAKS -> report.filterRootLeaks()
-                LeakFilter.CYCLES -> report.filterRootCycles()
+                LeakFilter.ALL -> reportWithTestName
+                LeakFilter.LEAKS -> reportWithTestName.filterRootLeaks()
+                LeakFilter.CYCLES -> reportWithTestName.filterRootCycles()
             }
 
             // Format response
@@ -153,11 +162,11 @@ class LeaksServer(
             exchange.sendResponseHeaders(200, response.toByteArray().size.toLong())
             exchange.responseBody.use { it.write(response.toByteArray()) }
 
-            println("Response sent: ${filteredReport.leaks.size} leaks found")
+            println("Response sent: ${filteredReport.leaks.size} leaks found${testName?.let { " (test: $it)" } ?: ""}")
 
             // Write artifacts if directory is configured and leaks were found
             if (artifactsDir != null && filteredReport.leaks.isNotEmpty()) {
-                writeLeakArtifacts(filteredReport, processName ?: "pid_$pid")
+                writeLeakArtifacts(filteredReport, processName ?: "pid_$pid", testName)
             }
 
         } catch (e: Exception) {
@@ -207,7 +216,7 @@ class LeaksServer(
         exchange.responseBody.use { it.write(response.toByteArray()) }
     }
 
-    private fun writeLeakArtifacts(report: LeaksReport, processName: String) {
+    private fun writeLeakArtifacts(report: LeaksReport, processName: String, testName: String?) {
         val outputPath = artifactsDir ?: return
 
         try {
@@ -215,16 +224,33 @@ class LeaksServer(
                 Files.createDirectories(outputPath)
             }
 
-            // Deduplicate leaks by type name - keep first instance of each type
-            val uniqueLeaks = report.leaks
+            // Deduplicate new leaks by type name - testName is already set on each leak
+            val newUniqueLeaks = report.leaks
                 .groupBy { it.rootTypeName ?: "unknown" }
                 .map { (_, leaks) -> leaks.first() }
 
-            // Save full report with unique leaks
+            // Read existing report and merge leaks
             val fullReportFile = outputPath.resolve("full_leak_report.json").toFile()
-            val uniqueReport = report.copy(leaks = uniqueLeaks)
-            fullReportFile.writeText(uniqueReport.toJsonPretty())
-            println("✓ Leak report written to: ${fullReportFile.absolutePath} (${uniqueLeaks.size} unique leaks)")
+            val existingLeaks = if (fullReportFile.exists()) {
+                try {
+                    val existingReport = Json.decodeFromString(LeaksReport.serializer(), fullReportFile.readText())
+                    existingReport.leaks
+                } catch (e: Exception) {
+                    println("  Warning: Could not parse existing report, starting fresh: ${e.message}")
+                    emptyList()
+                }
+            } else {
+                emptyList()
+            }
+
+            // Merge: keep existing leaks, add new ones (dedupe by typeName + testName)
+            val allLeaks = (existingLeaks + newUniqueLeaks)
+                .distinctBy { "${it.rootTypeName}_${it.testName}" }
+
+            // Save merged report
+            val mergedReport = report.copy(leaks = allLeaks)
+            fullReportFile.writeText(mergedReport.toJsonPretty())
+            println("✓ Leak report written to: ${fullReportFile.absolutePath} (${newUniqueLeaks.size} new, ${allLeaks.size} total leaks)")
 
             // Create per-leak artifacts
             val leaksDir = outputPath.resolve("leaks")
@@ -234,7 +260,7 @@ class LeaksServer(
 
             val json = Json { prettyPrint = true }
 
-            uniqueLeaks.forEachIndexed { index, leak ->
+            newUniqueLeaks.forEachIndexed { index, leak ->
                 val leakName = sanitizeFileName(leak.rootTypeName ?: "unknown_$index")
                 val leakDir = leaksDir.resolve(leakName)
 
@@ -246,9 +272,9 @@ class LeaksServer(
 
                 Files.createDirectories(leakDir)
 
-                // Save leak info
+                // Save leak info with test name
                 val infoFile = leakDir.resolve("info.txt").toFile()
-                infoFile.writeText(buildLeakInfo(leak))
+                infoFile.writeText(buildLeakInfo(leak, testName))
 
                 // Save raw output
                 val rawFile = leakDir.resolve("raw.txt").toFile()
@@ -259,16 +285,20 @@ class LeaksServer(
                 jsonFile.writeText(json.encodeToString(LeakInstance.serializer(), leak))
             }
 
-            println("✓ Created ${uniqueLeaks.size} unique leak artifacts in: ${leaksDir.toAbsolutePath()}")
+            val testInfo = testName?.let { " for test: $it" } ?: ""
+            println("✓ Created ${newUniqueLeaks.size} leak artifacts$testInfo in: ${leaksDir.toAbsolutePath()}")
 
         } catch (e: Exception) {
             System.err.println("Warning: Failed to write leak artifacts: ${e.message}")
         }
     }
 
-    private fun buildLeakInfo(leak: LeakInstance): String {
+    private fun buildLeakInfo(leak: LeakInstance, testName: String? = null): String {
         return buildString {
             appendLine("=== Leak Instance ===")
+            if (testName != null) {
+                appendLine("Test: $testName")
+            }
             appendLine("Type: ${leak.rootTypeName ?: "Unknown"}")
             appendLine("Leak Type: ${leak.leakType}")
             appendLine("Count: ${leak.rootCount ?: "N/A"}")
