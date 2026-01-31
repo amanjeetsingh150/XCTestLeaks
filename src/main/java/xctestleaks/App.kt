@@ -11,7 +11,6 @@ import java.net.URI
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.concurrent.Callable
-import java.util.concurrent.TimeUnit
 import kotlin.system.exitProcess
 
 /**
@@ -184,11 +183,12 @@ class RunTestsCommand : Callable<Int> {
     var keepServer: Boolean = false
 
     private var server: LeaksServer? = null
-    private var serverThread: Thread? = null
+    private val xcodebuildRunner = XcodebuildRunner()
+    private lateinit var outputPath: Path
 
     override fun call(): Int {
         // Create output directory
-        val outputPath = Path.of(outputDir)
+        outputPath = Path.of(outputDir)
         Files.createDirectories(outputPath)
 
         println("=== XCTestLeaks Test Runner ===")
@@ -198,43 +198,51 @@ class RunTestsCommand : Callable<Int> {
         println("Output directory: ${outputPath.toAbsolutePath()}")
         println()
 
-        // Start server if needed
+        // Start server with artifacts directory - leaks will be written automatically
         if (!noStartServer) {
             if (!startServer()) {
                 return 1
             }
         }
 
-        // Wait for server to be ready
+        // Wait for server to be ready BEFORE running xcodebuild
         println("Waiting for server to be ready...")
         if (!waitForServerHealth()) {
             System.err.println("Error: Server failed to become healthy within ${serverTimeout}s")
             stopServer()
             return 1
         }
-        println("Server is ready at http://$serverHost:$serverPort")
+        println("✓ Server is ready at http://$serverHost:$serverPort")
+
+        // Verify server health one more time before xcodebuild
+        if (!isServerHealthy()) {
+            System.err.println("Error: Server health check failed just before xcodebuild")
+            stopServer()
+            return 1
+        }
+        println("✓ Server health verified - starting xcodebuild")
         println()
 
-        // Run xcodebuild
+        // Run xcodebuild (server is guaranteed healthy at this point)
+        // Leaks will be written to artifacts directory automatically when detected
         println("Starting xcodebuild test...")
-        val xcodebuildResult = runXcodebuild()
+        val xcodebuildResult = xcodebuildRunner.test(
+            project = project,
+            scheme = scheme,
+            destination = destination,
+            additionalArgs = xcodebuildArgs
+        )
 
         // Save xcodebuild output
         val xcodebuildOutputFile = outputPath.resolve("xcodebuild_output.txt").toFile()
         xcodebuildOutputFile.writeText(xcodebuildResult.stdout + "\n" + xcodebuildResult.stderr)
         println("Xcodebuild output saved to: ${xcodebuildOutputFile.absolutePath}")
 
-        // Parse xcodebuild output to find leak reports
-        val leakArtifacts = collectLeakArtifacts(outputPath)
-
         // Print summary
         println()
         println("=== Summary ===")
         println("Xcodebuild exit code: ${xcodebuildResult.exitCode}")
-        println("Leak artifacts collected: ${leakArtifacts.size}")
-        if (leakArtifacts.isNotEmpty()) {
-            println("Artifacts saved to: ${outputPath.toAbsolutePath()}")
-        }
+        println("Artifacts directory: ${outputPath.toAbsolutePath()}")
 
         // Stop server unless --keep-server is specified
         if (!keepServer) {
@@ -248,36 +256,20 @@ class RunTestsCommand : Callable<Int> {
 
     private fun startServer(): Boolean {
         println("Starting leaks server on http://$serverHost:$serverPort...")
-        try {
-            server = LeaksServer(port = serverPort, host = serverHost)
-            serverThread = Thread {
-                server?.start()
-                try {
-                    server?.awaitTermination()
-                } catch (_: InterruptedException) {
-                    // Normal shutdown
-                }
-            }
-            serverThread?.isDaemon = true
-            serverThread?.start()
-
-            // Give the server a moment to start
-            Thread.sleep(500)
-            return true
+        println("Leak artifacts will be written to: ${outputPath.toAbsolutePath()}")
+        return try {
+            server = LeaksServer(port = serverPort, host = serverHost, artifactsDir = outputPath)
+            server?.start()
+            true
         } catch (e: Exception) {
             System.err.println("Error starting server: ${e.message}")
-            return false
+            false
         }
     }
 
     private fun stopServer() {
-        if (server != null) {
-            println("Stopping server...")
-            server?.stop()
-            serverThread?.interrupt()
-            server = null
-            serverThread = null
-        }
+        server?.stop()
+        server = null
     }
 
     private fun waitForServerHealth(): Boolean {
@@ -303,227 +295,18 @@ class RunTestsCommand : Callable<Int> {
         return false
     }
 
-    private fun runXcodebuild(): XcodebuildResult {
-        val command = mutableListOf(
-            "xcodebuild",
-            "test",
-            "-project", project,
-            "-scheme", scheme,
-            "-destination", destination,
-        )
-        command.addAll(xcodebuildArgs)
-
-        println("Running: ${command.joinToString(" ")}")
-        println()
-
-        val pb = ProcessBuilder(command)
-        pb.redirectErrorStream(false)
-
-        val process = pb.start()
-
-        // Read stdout and stderr concurrently to avoid blocking
-        val stdoutLines = mutableListOf<String>()
-        val stdoutReader = Thread {
-            process.inputStream.bufferedReader().forEachLine { line ->
-                synchronized(stdoutLines) {
-                    stdoutLines.add(line)
-                }
-                println(line)
-            }
-        }
-        val stderrLines = mutableListOf<String>()
-        val stderrReader = Thread {
-            process.errorStream.bufferedReader().forEachLine { line ->
-                synchronized(stderrLines) {
-                    stderrLines.add(line)
-                }
-                System.err.println(line)
-            }
-        }
-
-        stdoutReader.start()
-        stderrReader.start()
-
-        val exitCode = process.waitFor(10000, TimeUnit.SECONDS)
-        stdoutReader.join(50000)
-        stderrReader.join(50000)
-
-        return XcodebuildResult(
-            exitCode = if (exitCode) 0 else 1,
-            stdout = synchronized(stdoutLines) { stdoutLines.joinToString("\n") },
-            stderr = synchronized(stderrLines) { stderrLines.joinToString("\n") },
-        )
-    }
-
-    private fun collectLeakArtifacts(outputPath: Path): List<LeakArtifact> {
-        val artifacts = mutableListOf<LeakArtifact>()
-
-        // Use process name if specified, otherwise derive from scheme
-        val targetProcess = processName ?: scheme
-
-        // Try to fetch leaks from the server
-        try {
-            val leaksUrl = "http://$serverHost:$serverPort/leaks?process=$targetProcess&filter=all&format=json_pretty"
-            val connection = URI(leaksUrl).toURL().openConnection() as HttpURLConnection
+    private fun isServerHealthy(): Boolean {
+        return try {
+            val connection = URI("http://$serverHost:$serverPort/health").toURL().openConnection() as HttpURLConnection
             connection.requestMethod = "GET"
-            connection.connectTimeout = 5000
-            connection.readTimeout = 30000
-
-            if (connection.responseCode == 200) {
-                val response = connection.inputStream.bufferedReader().readText()
-                saveLeakArtifacts(response, outputPath, artifacts)
-            }
-        } catch (e: Exception) {
-            System.err.println("Warning: Could not fetch leaks from server: ${e.message}")
+            connection.connectTimeout = 1000
+            connection.readTimeout = 1000
+            connection.responseCode == 200
+        } catch (_: Exception) {
+            false
         }
-
-        return artifacts
-    }
-
-    private fun saveLeakArtifacts(jsonResponse: String, outputPath: Path, artifacts: MutableList<LeakArtifact>) {
-        // Parse the JSON response to extract individual leaks
-        val json = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
-
-        try {
-            val report = json.decodeFromString<LeaksReport>(jsonResponse)
-
-            // Save full report
-            val fullReportFile = outputPath.resolve("full_leak_report.json").toFile()
-            fullReportFile.writeText(report.toJsonPretty())
-            println("Full leak report saved to: ${fullReportFile.absolutePath}")
-
-            // Create per-leak artifacts
-            val leaksDir = outputPath.resolve("leaks")
-            Files.createDirectories(leaksDir)
-
-            report.leaks.forEachIndexed { index, leak ->
-                val leakName = sanitizeFileName(leak.rootTypeName ?: "unknown_${index}")
-                val leakDir = leaksDir.resolve("${index}_$leakName")
-                Files.createDirectories(leakDir)
-
-                // Save leak instance info
-                val infoFile = leakDir.resolve("info.txt").toFile()
-                infoFile.writeText(buildLeakInfo(leak))
-
-                // Save raw output
-                val rawFile = leakDir.resolve("raw.txt").toFile()
-                rawFile.writeText(leak.rawLines.joinToString("\n"))
-
-                // Save JSON representation
-                val jsonFile = leakDir.resolve("leak.json").toFile()
-                val leakJson = json.encodeToString(LeakInstance.serializer(), leak)
-                jsonFile.writeText(leakJson)
-
-                // Try to find source file
-                val sourceFile = findSourceFile(leak.rootTypeName, File(project).parentFile)
-                if (sourceFile != null) {
-                    val sourceInfoFile = leakDir.resolve("source_location.txt").toFile()
-                    sourceInfoFile.writeText("Source file: ${sourceFile.absolutePath}")
-                }
-
-                artifacts.add(LeakArtifact(
-                    name = leakName,
-                    directory = leakDir,
-                    leak = leak,
-                    sourceFile = sourceFile,
-                ))
-            }
-
-            println("Created ${report.leaks.size} individual leak artifacts in: ${leaksDir.toAbsolutePath()}")
-
-        } catch (e: Exception) {
-            System.err.println("Warning: Could not parse leak report: ${e.message}")
-            // Save raw response anyway
-            val rawFile = outputPath.resolve("raw_leak_response.json").toFile()
-            rawFile.writeText(jsonResponse)
-        }
-    }
-
-    private fun buildLeakInfo(leak: LeakInstance): String {
-        return buildString {
-            appendLine("=== Leak Instance ===")
-            appendLine("Type: ${leak.rootTypeName ?: "Unknown"}")
-            appendLine("Leak Type: ${leak.leakType}")
-            appendLine("Count: ${leak.rootCount ?: "N/A"}")
-            appendLine("Size: ${leak.rootSizeHumanReadable ?: "N/A"}")
-            appendLine("Instance Size: ${leak.rootInstanceSizeBytes ?: "N/A"} bytes")
-            appendLine()
-            if (leak.children.isNotEmpty()) {
-                appendLine("Children (${leak.children.size}):")
-                leak.children.forEach { child ->
-                    appendLine("  - ${child.fieldName}: ${child.typeName} (${child.count} instances, ${child.sizeHumanReadable})")
-                }
-                appendLine()
-            }
-            appendLine("Raw Output:")
-            leak.rawLines.forEach { line ->
-                appendLine(line)
-            }
-        }
-    }
-
-    private fun sanitizeFileName(name: String): String {
-        return name.replace(Regex("[^a-zA-Z0-9._-]"), "_")
-            .take(100) // Limit length
-    }
-
-    private fun findSourceFile(typeName: String?, projectDir: File?): File? {
-        if (typeName == null || projectDir == null || !projectDir.exists()) {
-            return null
-        }
-
-        // Extract simple class name (handle generics and module prefixes)
-        val simpleName = typeName
-            .substringBefore('<')
-            .substringAfterLast('.')
-
-        // Search for Swift/ObjC files containing this class
-        return searchForType(simpleName, projectDir)
-    }
-
-    private fun searchForType(typeName: String, dir: File): File? {
-        if (!dir.isDirectory) return null
-
-        val extensions = listOf(".swift", ".m", ".mm", ".h")
-        val patterns = listOf(
-            "class $typeName",
-            "struct $typeName",
-            "enum $typeName",
-            "@interface $typeName",
-            "@implementation $typeName",
-        )
-
-        dir.walkTopDown()
-            .filter { file ->
-                file.isFile && extensions.any { file.name.endsWith(it) }
-            }
-            .forEach { file ->
-                try {
-                    val content = file.readText()
-                    if (patterns.any { pattern -> content.contains(pattern) }) {
-                        return file
-                    }
-                } catch (_: Exception) {
-                    // Skip files we can't read
-                }
-            }
-
-        return null
     }
 }
-
-data class XcodebuildResult(
-    val exitCode: Int,
-    val stdout: String,
-    val stderr: String,
-)
-
-data class LeakArtifact(
-    val name: String,
-    val directory: Path,
-    val leak: LeakInstance,
-    val sourceFile: File?,
-)
 
 /**
  * CLI wrapper for the macOS `leaks` command with parsing and filtering capabilities.

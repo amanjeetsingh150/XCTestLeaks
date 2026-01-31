@@ -2,10 +2,14 @@ package xctestleaks
 
 import com.sun.net.httpserver.HttpExchange
 import com.sun.net.httpserver.HttpServer
+import kotlinx.serialization.json.Json
 import xctestleaks.command.MacOSCommandRunner
+import java.io.File
 import java.net.InetSocketAddress
 import java.net.URLDecoder
 import java.nio.charset.StandardCharsets
+import java.nio.file.Files
+import java.nio.file.Path
 
 /**
  * HTTP server that exposes the leaks functionality via REST API.
@@ -20,6 +24,8 @@ import java.nio.charset.StandardCharsets
  *   - format: Output format - json, json_pretty, raw (default: "json")
  *   - exclude: Symbol to exclude (can be repeated)
  *
+ * When artifactsDir is set, leaks are automatically written to that directory.
+ *
  * Example:
  *   GET http://localhost:8080/leaks?process=Client&filter=cycles
  *   GET http://localhost:8080/leaks?process=Client&filter=all&format=json_pretty
@@ -27,6 +33,7 @@ import java.nio.charset.StandardCharsets
 class LeaksServer(
     private val port: Int = 8080,
     private val host: String = "localhost",
+    private val artifactsDir: Path? = null,
 ) {
     private var server: HttpServer? = null
 
@@ -148,6 +155,11 @@ class LeaksServer(
 
             println("Response sent: ${filteredReport.leaks.size} leaks found")
 
+            // Write artifacts if directory is configured and leaks were found
+            if (artifactsDir != null && filteredReport.leaks.isNotEmpty()) {
+                writeLeakArtifacts(filteredReport, processName ?: "pid_$pid")
+            }
+
         } catch (e: Exception) {
             e.printStackTrace()
             sendError(exchange, 500, "Internal error: ${e.message}")
@@ -193,5 +205,67 @@ class LeaksServer(
         exchange.responseHeaders.add("Content-Type", "application/json")
         exchange.sendResponseHeaders(code, response.toByteArray().size.toLong())
         exchange.responseBody.use { it.write(response.toByteArray()) }
+    }
+
+    private fun writeLeakArtifacts(report: LeaksReport, processName: String) {
+        val outputPath = artifactsDir ?: return
+
+        try {
+            Files.createDirectories(outputPath)
+
+            // Save full report
+            val fullReportFile = outputPath.resolve("full_leak_report.json").toFile()
+            fullReportFile.writeText(report.toJsonPretty())
+            println("✓ Leak report written to: ${fullReportFile.absolutePath}")
+
+            // Create per-leak artifacts
+            val leaksDir = outputPath.resolve("leaks")
+            Files.createDirectories(leaksDir)
+
+            val json = Json { prettyPrint = true }
+
+            report.leaks.forEachIndexed { index, leak ->
+                val leakName = sanitizeFileName(leak.rootTypeName ?: "unknown_$index")
+                val leakDir = leaksDir.resolve("${index}_$leakName")
+                Files.createDirectories(leakDir)
+
+                // Save leak info
+                val infoFile = leakDir.resolve("info.txt").toFile()
+                infoFile.writeText(buildLeakInfo(leak))
+
+                // Save raw output
+                val rawFile = leakDir.resolve("raw.txt").toFile()
+                rawFile.writeText(leak.rawLines.joinToString("\n"))
+
+                // Save JSON
+                val jsonFile = leakDir.resolve("leak.json").toFile()
+                jsonFile.writeText(json.encodeToString(LeakInstance.serializer(), leak))
+            }
+
+            println("✓ Created ${report.leaks.size} leak artifacts in: ${leaksDir.toAbsolutePath()}")
+
+        } catch (e: Exception) {
+            System.err.println("Warning: Failed to write leak artifacts: ${e.message}")
+        }
+    }
+
+    private fun buildLeakInfo(leak: LeakInstance): String {
+        return buildString {
+            appendLine("=== Leak Instance ===")
+            appendLine("Type: ${leak.rootTypeName ?: "Unknown"}")
+            appendLine("Leak Type: ${leak.leakType}")
+            appendLine("Count: ${leak.rootCount ?: "N/A"}")
+            appendLine("Size: ${leak.rootSizeHumanReadable ?: "N/A"}")
+            appendLine("Instance Size: ${leak.rootInstanceSizeBytes ?: "N/A"} bytes")
+            appendLine()
+            appendLine("=== Children ===")
+            leak.children.forEach { child ->
+                appendLine("  ${child.count} (${child.sizeHumanReadable}) ${child.fieldName} --> ${child.typeName} [${child.instanceSizeBytes}]")
+            }
+        }
+    }
+
+    private fun sanitizeFileName(name: String): String {
+        return name.replace(Regex("[^a-zA-Z0-9_.-]"), "_").take(50)
     }
 }
