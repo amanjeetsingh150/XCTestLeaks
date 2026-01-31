@@ -33,7 +33,7 @@ class NoDestinationFailure(message: String) : RuntimeException(message)
  * both from the CLI and from tests.
  */
 class XcodebuildRunner(
-    private val timeoutSeconds: Long = 300,
+    private val timeoutSeconds: Long = 600,
     private val printOutput: Boolean = true
 ) {
 
@@ -207,8 +207,8 @@ class XcodebuildRunner(
         stderrReader.start()
 
         val completed = process.waitFor(timeoutSeconds, TimeUnit.SECONDS)
-        stdoutReader.join(5000)
-        stderrReader.join(5000)
+        stdoutReader.join(500000)
+        stderrReader.join(500000)
 
         return XcodebuildResult(
             exitCode = if (completed) process.exitValue() else -1,

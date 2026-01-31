@@ -281,8 +281,8 @@ class RunTestsCommand : Callable<Int> {
             try {
                 val connection = URI(healthUrl).toURL().openConnection() as HttpURLConnection
                 connection.requestMethod = "GET"
-                connection.connectTimeout = 1000
-                connection.readTimeout = 1000
+                connection.connectTimeout = 2000
+                connection.readTimeout = 3000
 
                 if (connection.responseCode == 200) {
                     return true

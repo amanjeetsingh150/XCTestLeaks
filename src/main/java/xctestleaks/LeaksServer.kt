@@ -211,22 +211,39 @@ class LeaksServer(
         val outputPath = artifactsDir ?: return
 
         try {
-            Files.createDirectories(outputPath)
+            if (!Files.exists(outputPath)) {
+                Files.createDirectories(outputPath)
+            }
 
-            // Save full report
+            // Deduplicate leaks by type name - keep first instance of each type
+            val uniqueLeaks = report.leaks
+                .groupBy { it.rootTypeName ?: "unknown" }
+                .map { (_, leaks) -> leaks.first() }
+
+            // Save full report with unique leaks
             val fullReportFile = outputPath.resolve("full_leak_report.json").toFile()
-            fullReportFile.writeText(report.toJsonPretty())
-            println("✓ Leak report written to: ${fullReportFile.absolutePath}")
+            val uniqueReport = report.copy(leaks = uniqueLeaks)
+            fullReportFile.writeText(uniqueReport.toJsonPretty())
+            println("✓ Leak report written to: ${fullReportFile.absolutePath} (${uniqueLeaks.size} unique leaks)")
 
             // Create per-leak artifacts
             val leaksDir = outputPath.resolve("leaks")
-            Files.createDirectories(leaksDir)
+            if (!Files.exists(leaksDir)) {
+                Files.createDirectories(leaksDir)
+            }
 
             val json = Json { prettyPrint = true }
 
-            report.leaks.forEachIndexed { index, leak ->
+            uniqueLeaks.forEachIndexed { index, leak ->
                 val leakName = sanitizeFileName(leak.rootTypeName ?: "unknown_$index")
-                val leakDir = leaksDir.resolve("${index}_$leakName")
+                val leakDir = leaksDir.resolve(leakName)
+
+                // Skip if artifact already exists for this leak type
+                if (Files.exists(leakDir)) {
+                    println("  Skipping existing artifact: $leakName")
+                    return@forEachIndexed
+                }
+
                 Files.createDirectories(leakDir)
 
                 // Save leak info
@@ -242,7 +259,7 @@ class LeaksServer(
                 jsonFile.writeText(json.encodeToString(LeakInstance.serializer(), leak))
             }
 
-            println("✓ Created ${report.leaks.size} leak artifacts in: ${leaksDir.toAbsolutePath()}")
+            println("✓ Created ${uniqueLeaks.size} unique leak artifacts in: ${leaksDir.toAbsolutePath()}")
 
         } catch (e: Exception) {
             System.err.println("Warning: Failed to write leak artifacts: ${e.message}")
