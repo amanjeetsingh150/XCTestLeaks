@@ -48,7 +48,7 @@ class LeakTestAppIntegrationTest {
     fun tearDown() {
         stopServer()
         // Clean up artifacts directory
-        artifactsDir.toFile().deleteRecursively()
+//        artifactsDir.toFile().deleteRecursively()
     }
 
     // MARK: - Server Management
@@ -199,6 +199,25 @@ class LeakTestAppIntegrationTest {
                 println("  ✓ ${leakDir.name}: info.txt, raw.txt, leak.json")
             }
         }
+
+        // Step 6: Generate HTML report
+        println("Step 6: Generating HTML report...")
+        val htmlGenerator = HtmlReportGenerator()
+        val htmlReportFile = artifactsDir.resolve("report.html").toFile()
+
+        val htmlGenerated = htmlGenerator.generate(artifactsDir, htmlReportFile)
+        assertTrue(htmlGenerated, "HTML report should be generated successfully")
+        assertTrue(htmlReportFile.exists(), "HTML report file should exist")
+        assertTrue(htmlReportFile.length() > 0, "HTML report should not be empty")
+
+        val htmlContent = htmlReportFile.readText()
+        assertTrue(htmlContent.contains("XCTestLeaks Report"), "HTML should contain report title")
+        assertTrue(
+            htmlContent.contains("LeakyManager") || htmlContent.contains("LeakyWorker") || htmlContent.contains("LeakyClosureHolder"),
+            "HTML report should contain leak type names"
+        )
+
+        println("✓ HTML report generated: ${htmlReportFile.absolutePath}")
     }
 
     // MARK: - Helpers

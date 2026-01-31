@@ -182,6 +182,12 @@ class RunTestsCommand : Callable<Int> {
     )
     var keepServer: Boolean = false
 
+    @Option(
+        names = ["--html-output"],
+        description = ["Generate HTML report in artifacts directory after tests complete."],
+    )
+    var htmlOutput: Boolean = false
+
     private var server: LeaksServer? = null
     private val xcodebuildRunner = XcodebuildRunner()
     private lateinit var outputPath: Path
@@ -238,11 +244,19 @@ class RunTestsCommand : Callable<Int> {
         xcodebuildOutputFile.writeText(xcodebuildResult.stdout + "\n" + xcodebuildResult.stderr)
         println("Xcodebuild output saved to: ${xcodebuildOutputFile.absolutePath}")
 
+        // Generate HTML report if requested
+        if (htmlOutput) {
+            generateHtmlReport()
+        }
+
         // Print summary
         println()
         println("=== Summary ===")
         println("Xcodebuild exit code: ${xcodebuildResult.exitCode}")
         println("Artifacts directory: ${outputPath.toAbsolutePath()}")
+        if (htmlOutput) {
+            println("HTML report: ${outputPath.resolve("report.html").toAbsolutePath()}")
+        }
 
         // Stop server unless --keep-server is specified
         if (!keepServer) {
@@ -304,6 +318,19 @@ class RunTestsCommand : Callable<Int> {
             connection.responseCode == 200
         } catch (_: Exception) {
             false
+        }
+    }
+
+    private fun generateHtmlReport() {
+        println()
+        println("Generating HTML report...")
+        val generator = HtmlReportGenerator()
+        val reportFile = outputPath.resolve("report.html").toFile()
+
+        if (generator.generate(outputPath, reportFile)) {
+            println("✓ HTML report generated: ${reportFile.absolutePath}")
+        } else {
+            System.err.println("Warning: Failed to generate HTML report")
         }
     }
 }
