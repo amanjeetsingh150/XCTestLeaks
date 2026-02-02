@@ -224,16 +224,12 @@ class LeaksServer(
                 Files.createDirectories(outputPath)
             }
 
-            // Deduplicate new leaks by type name - testName is already set on each leak
-            val newUniqueLeaks = report.leaks
-                .groupBy { it.rootTypeName ?: "unknown" }
-                .map { (_, leaks) -> leaks.first() }
-
-            // Read existing report and merge leaks
+            // Read existing report to get previously seen leaks
             val fullReportFile = outputPath.resolve("full_leak_report.json").toFile()
+            val jsonParser = Json { ignoreUnknownKeys = true }
             val existingLeaks = if (fullReportFile.exists()) {
                 try {
-                    val existingReport = Json.decodeFromString(LeaksReport.serializer(), fullReportFile.readText())
+                    val existingReport = jsonParser.decodeFromString(LeaksReport.serializer(), fullReportFile.readText())
                     existingReport.leaks
                 } catch (e: Exception) {
                     println("  Warning: Could not parse existing report, starting fresh: ${e.message}")
@@ -243,9 +239,23 @@ class LeaksServer(
                 emptyList()
             }
 
-            // Merge: keep existing leaks, add new ones (dedupe by typeName + testName)
-            val allLeaks = (existingLeaks + newUniqueLeaks)
-                .distinctBy { "${it.rootTypeName}_${it.testName}" }
+            // Get type names already attributed to previous tests
+            val existingTypeNames = existingLeaks.mapNotNull { it.rootTypeName }.toSet()
+
+            // New leaks = leaks whose typeName wasn't seen before (introduced by current test)
+            val newUniqueLeaks = report.leaks
+                .filter { it.rootTypeName !in existingTypeNames }
+                .groupBy { it.rootTypeName ?: "unknown" }
+                .map { (_, leaks) -> leaks.first() }
+
+            // If no new leaks, don't modify report or create artifacts
+            if (newUniqueLeaks.isEmpty()) {
+                println("  No new leaks detected${testName?.let { " for test: $it" } ?: ""}, skipping artifact creation")
+                return
+            }
+
+            // All leaks = existing (from previous tests) + new (from current test)
+            val allLeaks = existingLeaks + newUniqueLeaks
 
             // Save merged report
             val mergedReport = report.copy(leaks = allLeaks)
