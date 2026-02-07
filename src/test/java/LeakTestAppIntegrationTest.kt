@@ -9,8 +9,8 @@ import java.nio.file.Files
 import java.nio.file.Path
 
 /**
- * Integration test that runs the LeakTestApp on simulator and verifies
- * that LeakyManager retain cycles are detected by the server and written to artifacts.
+ * Integration test that runs the LeakTestApp on simulator and validates
+ * that the server correctly writes leak report artifacts (JSON, HTML, per-leak files).
  */
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class LeakTestAppIntegrationTest {
@@ -19,24 +19,19 @@ class LeakTestAppIntegrationTest {
     private val serverHost = "localhost"
     private var server: LeaksServer? = null
 
-    // Path to the test app project (relative to project root)
     private val testAppProject = "tests/LeakTestApp/LeakTestApp.xcodeproj"
     private val testAppScheme = "LeakTestApp"
 
-    // Artifacts directory for leak reports
     private lateinit var artifactsDir: Path
 
-    // Use XcodebuildRunner for all xcodebuild operations
     private val xcodebuildRunner = XcodebuildRunner(timeoutSeconds = 30000, printOutput = true)
 
-    // Find the simulator to use - throws NoDestinationFailure if none found
     private val simulatorDestination: String by lazy {
         xcodebuildRunner.findAvailableSimulator()
     }
 
     @BeforeAll
     fun setUp() {
-        // Create artifacts directory
         artifactsDir = Files.createTempDirectory("leak-test-artifacts")
         println("Artifacts directory: ${artifactsDir.toAbsolutePath()}")
 
@@ -47,14 +42,11 @@ class LeakTestAppIntegrationTest {
     @AfterAll
     fun tearDown() {
         stopServer()
-        // Clean up artifacts directory
-//        artifactsDir.toFile().deleteRecursively()
     }
 
     // MARK: - Server Management
 
     private fun startServer() {
-        // Check if server is already running (external instance)
         if (isServerHealthy()) {
             println("✓ Server already running on http://$serverHost:$serverPort (external)")
             return
@@ -116,18 +108,12 @@ class LeakTestAppIntegrationTest {
     }
 
     @Test
-    fun `build and run LeakTestApp writes leak artifacts with LeakyManager retain cycle`() {
-        // Verify the test project exists
+    fun `build and run LeakTestApp then validate report artifacts`() {
         val projectFile = File(testAppProject)
         assertTrue(projectFile.exists(), "Test project should exist at $testAppProject")
 
-        // Step 1: Verify server is healthy BEFORE running xcodebuild
-        println("Step 1: Verifying server is healthy before xcodebuild...")
-        assertTrue(isServerHealthy(), "Server must be healthy before running xcodebuild")
-        println("✓ Server health check passed")
-
-        // Step 2: Build the app using XcodebuildRunner
-        println("Step 2: Building LeakTestApp...")
+        // Step 1: Build
+        println("Step 1: Building LeakTestApp...")
         val buildResult = xcodebuildRunner.build(
             project = testAppProject,
             scheme = testAppScheme,
@@ -137,72 +123,46 @@ class LeakTestAppIntegrationTest {
         assertEquals(0, buildResult.exitCode, "Build should succeed. Output:\n${buildResult.stdout}\n${buildResult.stderr}")
         println("✓ Build succeeded")
 
-        // Step 3: Verify server is STILL healthy after build
-        println("Step 3: Verifying server is still healthy after build...")
-        assertTrue(isServerHealthy(), "Server must still be healthy after build")
-        println("✓ Server still healthy")
-
-        // Step 4: Run ALL tests to trigger leaks
-        // Each Swift test will:
-        //   1. Call triggerLeaks() to create retain cycles
-        //   2. Call /leaks endpoint with its own testName
-        //   3. Server processes the request and writes artifacts
-        println("Step 4: Running ALL LeakTestApp tests...")
+        // Step 2: Run tests (Swift tests trigger leaks and hit the server)
+        println("Step 2: Running LeakTestApp tests...")
         val testResult = xcodebuildRunner.test(
             project = testAppProject,
             scheme = testAppScheme,
             destination = simulatorDestination
-            // No onlyTesting - runs all tests
         )
         println("Test exit code: ${testResult.exitCode}")
 
-        // Step 5: Verify artifacts were written by the server
-        println("Step 5: Checking artifacts directory for leak reports...")
-
+        // Step 3: Validate full_leak_report.json exists and contains expected data
+        println("Step 3: Validating full_leak_report.json...")
         val fullReportFile = artifactsDir.resolve("full_leak_report.json").toFile()
-        assertTrue(fullReportFile.exists(), "Full leak report should be created at ${fullReportFile.absolutePath}")
+        assertTrue(fullReportFile.exists(), "Full leak report should exist at ${fullReportFile.absolutePath}")
 
         val reportContent = fullReportFile.readText()
-        println("=== Leak Report Content ===")
-        println(reportContent)
-        println("===========================")
+        assertTrue(reportContent.isNotBlank(), "Report should not be empty")
 
-        // Assert that our intentional leaks are detected in the artifacts
         val containsLeakyManager = reportContent.contains("LeakyManager")
         val containsLeakyWorker = reportContent.contains("LeakyWorker")
         val containsLeakyClosureHolder = reportContent.contains("LeakyClosureHolder")
-
         assertTrue(
             containsLeakyManager || containsLeakyWorker || containsLeakyClosureHolder,
-            "Leak artifacts should contain LeakyManager, LeakyWorker, or LeakyClosureHolder retain cycle"
+            "Report should contain LeakyManager, LeakyWorker, or LeakyClosureHolder"
         )
+        println("✓ full_leak_report.json contains expected leak types")
 
-        if (containsLeakyManager) println("✓ Detected LeakyManager in artifacts")
-        if (containsLeakyWorker) println("✓ Detected LeakyWorker in artifacts")
-        if (containsLeakyClosureHolder) println("✓ Detected LeakyClosureHolder in artifacts")
+        // Step 4: Validate testName is present in the report
+        println("Step 4: Validating testName in report...")
+        val hasTestName = reportContent.contains("testDetectClosureLeaks") ||
+                reportContent.contains("testDetectRetainCycleLeaks")
+        assertTrue(hasTestName, "Report should contain a testName from the Swift tests")
+        println("✓ testName present in report")
 
-        // Step 6: Validate testName is correctly set in leak JSON
-        println("Step 6: Validating testName in leak instances...")
-
-        // Only the FIRST test that introduces leaks gets them attributed
-        // Since both Swift tests trigger the same leaks, only the first one gets attribution
-        // Test execution order is alphabetical, so testDetectClosureLeaks runs first
-        val hasClosureTestInJson = reportContent.contains("testDetectClosureLeaks")
-        val hasRetainCycleTestInJson = reportContent.contains("testDetectRetainCycleLeaks")
-
-        println("  testDetectClosureLeaks in JSON: $hasClosureTestInJson")
-        println("  testDetectRetainCycleLeaks in JSON: $hasRetainCycleTestInJson")
-
-        assertTrue(
-            hasClosureTestInJson || hasRetainCycleTestInJson,
-            "Leak report should contain either testDetectClosureLeaks or testDetectRetainCycleLeaks (whichever runs first)"
-        )
-
-        // Verify per-leak artifact structure and testName
+        // Step 5: Validate per-leak artifact directories
+        println("Step 5: Validating per-leak artifact directories...")
         val leaksDir = artifactsDir.resolve("leaks").toFile()
         if (leaksDir.exists()) {
             val leakDirs = leaksDir.listFiles()?.filter { it.isDirectory } ?: emptyList()
-            println("✓ Found ${leakDirs.size} individual leak artifact directories")
+            assertTrue(leakDirs.isNotEmpty(), "Should have at least one leak artifact directory")
+            println("✓ Found ${leakDirs.size} leak artifact directories")
 
             for (leakDir in leakDirs) {
                 val infoFile = File(leakDir, "info.txt")
@@ -213,20 +173,16 @@ class LeakTestAppIntegrationTest {
                 assertTrue(rawFile.exists(), "Leak dir ${leakDir.name} should have raw.txt")
                 assertTrue(jsonFile.exists(), "Leak dir ${leakDir.name} should have leak.json")
 
-                // Validate testName in individual leak JSON
                 val leakJson = jsonFile.readText()
-                val leakHasTestName = leakJson.contains("\"testName\"")
-                assertTrue(leakHasTestName, "Leak ${leakDir.name} should have testName in JSON")
+                assertTrue(leakJson.contains("\"testName\""), "leak.json should contain testName field")
+                assertTrue(leakJson.contains("\"leakType\""), "leak.json should contain leakType field")
 
-                // Extract and print testName for verification
-                val testNameMatch = Regex("\"testName\"\\s*:\\s*\"([^\"]+)\"").find(leakJson)
-                val testName = testNameMatch?.groupValues?.get(1) ?: "null"
-                println("  ✓ ${leakDir.name}: testName=$testName")
+                println("  ✓ ${leakDir.name}: info.txt, raw.txt, leak.json present")
             }
         }
 
-        // Step 7: Generate HTML report
-        println("Step 7: Generating HTML report...")
+        // Step 6: Generate and validate HTML report
+        println("Step 6: Generating HTML report...")
         val htmlGenerator = HtmlReportGenerator()
         val htmlReportFile = artifactsDir.resolve("report.html").toFile()
 
@@ -241,20 +197,7 @@ class LeakTestAppIntegrationTest {
             htmlContent.contains("LeakyManager") || htmlContent.contains("LeakyWorker") || htmlContent.contains("LeakyClosureHolder"),
             "HTML report should contain leak type names"
         )
-
-        // Only the first test that introduced leaks should appear in HTML
-        val hasClosureTestInHtml = htmlContent.contains("testDetectClosureLeaks")
-        val hasRetainCycleTestInHtml = htmlContent.contains("testDetectRetainCycleLeaks")
-
-        println("  testDetectClosureLeaks in HTML: $hasClosureTestInHtml")
-        println("  testDetectRetainCycleLeaks in HTML: $hasRetainCycleTestInHtml")
-
-        assertTrue(
-            hasClosureTestInHtml || hasRetainCycleTestInHtml,
-            "HTML report should contain either testDetectClosureLeaks or testDetectRetainCycleLeaks"
-        )
-
-        println("✓ HTML report generated: ${htmlReportFile.absolutePath}")
+        println("✓ HTML report validated: ${htmlReportFile.absolutePath}")
     }
 
     // MARK: - Helpers

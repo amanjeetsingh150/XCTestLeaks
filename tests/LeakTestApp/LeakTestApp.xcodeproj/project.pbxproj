@@ -3,10 +3,11 @@
 	archiveVersion = 1;
 	classes = {
 	};
-	objectVersion = 56;
+	objectVersion = 60;
 	objects = {
 
 /* Begin PBXBuildFile section */
+		52D04E152F3731190069902B /* XCTestLeaksClient in Frameworks */ = {isa = PBXBuildFile; productRef = 52D04E142F3731190069902B /* XCTestLeaksClient */; };
 		A1000001230000000000000A /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000001230000000000000B /* AppDelegate.swift */; };
 		A1000001230000000000000C /* ViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000001230000000000000D /* ViewController.swift */; };
 		A1000001230000000000000E /* LeakyManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000001230000000000000F /* LeakyManager.swift */; };
@@ -24,7 +25,7 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
-		52DE81832F2CEF8F00448469 /* LeakTestApp.xctestplan */ = {isa = PBXFileReference; lastKnownFileType = file; path = LeakTestApp.xctestplan; sourceTree = "<group>"; };
+		52DE81832F2CEF8F00448469 /* LeakTestApp.xctestplan */ = {isa = PBXFileReference; lastKnownFileType = text; path = LeakTestApp.xctestplan; sourceTree = "<group>"; };
 		A10000012300000000000004 /* LeakTestApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = LeakTestApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A1000001230000000000000B /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		A1000001230000000000000D /* ViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ViewController.swift; sourceTree = "<group>"; };
@@ -47,6 +48,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				52D04E152F3731190069902B /* XCTestLeaksClient in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -126,6 +128,9 @@
 				A1000001230000000000001C /* PBXTargetDependency */,
 			);
 			name = LeakTestAppTests;
+			packageProductDependencies = (
+				52D04E142F3731190069902B /* XCTestLeaksClient */,
+			);
 			productName = LeakTestAppTests;
 			productReference = A10000012300000000000014 /* LeakTestAppTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
@@ -158,6 +163,9 @@
 				Base,
 			);
 			mainGroup = A10000012300000000000000;
+			packageReferences = (
+				52D04E132F3731190069902B /* XCLocalSwiftPackageReference "../../XCTestLeaksClient" */,
+			);
 			productRefGroup = A10000012300000000000002 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
@@ -469,6 +477,20 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		52D04E142F3731190069902B /* XCTestLeaksClient */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = XCTestLeaksClient;
+		};
+/* End XCSwiftPackageProductDependency section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		52D04E132F3731190069902B /* XCLocalSwiftPackageReference "../../XCTestLeaksClient" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = ../../XCTestLeaksClient;
+		};
+/* End XCLocalSwiftPackageReference section */
 	};
 	rootObject = A10000012300000000000001 /* Project object */;
 }
