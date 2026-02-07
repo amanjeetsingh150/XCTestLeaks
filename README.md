@@ -2,6 +2,10 @@
 
 A memory leak detection tool that integrates directly with XCTest. Run your existing unit tests and get per-test leak reports powered by the macOS native `leaks` tool.
 
+## Demo
+
+https://github.com/amanjeetsingh150/XCTestLeaks/raw/main/assets/demo.mp4
+
 ## Features
 
 - Integrates with XCTest-leak checks run automatically after each test
