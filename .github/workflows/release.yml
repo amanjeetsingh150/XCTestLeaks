@@ -1,0 +1,55 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build & Publish Release
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Build distribution tarball
+        run: ./gradlew distTar
+
+      - name: Get version from tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Find tarball
+        id: tarball
+        run: |
+          TARBALL=$(ls build/distributions/xctestleaks-*.tar.gz 2>/dev/null || ls build/distributions/xctestleaks*.tar 2>/dev/null)
+          echo "PATH=$TARBALL" >> "$GITHUB_OUTPUT"
+          echo "SHA256=$(shasum -a 256 "$TARBALL" | cut -d ' ' -f1)" >> "$GITHUB_OUTPUT"
+          echo "Tarball: $TARBALL"
+          echo "SHA256: $(shasum -a 256 "$TARBALL" | cut -d ' ' -f1)"
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            "${{ steps.tarball.outputs.PATH }}" \
+            --title "xctestleaks ${{ steps.version.outputs.VERSION }}" \
+            --generate-notes
+
+      - name: Print Homebrew SHA256
+        run: |
+          echo "============================================"
+          echo "Homebrew formula SHA256:"
+          echo "${{ steps.tarball.outputs.SHA256 }}"
+          echo "============================================"
+          echo "Update homebrew/xctestleaks.rb with this SHA256"

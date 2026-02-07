@@ -352,7 +352,7 @@ class RunTestsCommand : Callable<Int> {
 @Command(
     name = "xctestleaks",
     mixinStandardHelpOptions = true,
-    version = ["xctestleaks 1.0.0"],
+    version = ["xctestleaks 0.1.0"],
     description = [
         "A wrapper around macOS leaks command for iOS simulators.",
         "",
