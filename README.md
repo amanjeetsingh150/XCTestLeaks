@@ -1,24 +1,23 @@
 # XCTestLeaks
 
-A Kotlin CLI tool that detects memory leaks in iOS apps during XCTest execution. It wraps macOS's native `leaks` tool, parses structured leak reports, and generates HTML reports — making it easy to catch retain cycles in your CI or local testing workflow.
+A tool that integrates with your iOS testing workflow to surface memory leaks. It uses macOS's native `leaks` tool under the hood and currently integrates with XCTest unit tests.
 
 ## Features
 
-- **Leak detection** via `xcrun simctl spawn` on iOS Simulators
-- **Structured parsing** — raw leak output parsed into typed data (root leaks vs. retain cycles)
-- **Filtering** — by leak type (`leaks`, `cycles`, `all`) and symbol exclusion
-- **Output formats** — `RAW`, `JSON`, `JSON_PRETTY`
-- **HTTP server mode** — REST API for on-demand leak analysis from XCTest
-- **Automated test runner** — runs `xcodebuild test`, detects leaks, collects artifacts
-- **HTML reports** — interactive dark-themed reports with expandable leak cards and object hierarchy
+- Memory leak detection per test case
+- Filter only retain cycles
+- JSON report export
+- Interactive HTML reports
+- Independent HTTP server (`xctestleaks serve`)
 
 ## Requirements
 
 - macOS with Xcode installed
 - JDK 11+
-- An iOS Simulator (booted)
 
-## Build
+## Getting Started
+
+### Step 1: Build XCTestLeaks
 
 ```bash
 ./gradlew installDist
@@ -26,57 +25,88 @@ A Kotlin CLI tool that detects memory leaks in iOS apps during XCTest execution.
 
 The binary will be available at `build/install/xctestleaks/bin/xctestleaks`.
 
-## Usage
+---
 
-### Direct Leak Analysis
+### Step 2: Ensure your tests are hosted on a Simulator
 
-```bash
-# Analyze a process by name on the booted simulator
-xctestleaks MyApp
+XCTestLeaks analyzes the host app's process for leaks, so your unit tests must run inside the app on a Simulator.
 
-# Analyze by PID
-xctestleaks -p 12345
+In Xcode, select your **test target** → **General** → **Testing** → set **Host Application** to your app target. This ensures tests execute within the app process rather than a standalone test runner.
 
-# Target a specific simulator
-xctestleaks MyApp --device <UDID>
+---
 
-# JSON output, only retain cycles
-xctestleaks MyApp --format JSON_PRETTY --filter cycles
+### Step 3: Add the leak-check helper to your test target
 
-# Exclude known leaks
-xctestleaks MyApp --exclude "KnownLeakyClass"
-
-# Summary only
-xctestleaks MyApp --summary
-```
-
-### HTTP Server Mode
-
-Start a REST API server so XCTest can request leak checks on demand:
-
-```bash
-xctestleaks serve --port 8080
-```
-
-Then from your XCTest:
+Add the following function to a shared test utilities file (e.g. `XCTestCase+Leaks.swift`). It pings the XCTestLeaks server in `tearDown` to capture leaks for the test that just ran:
 
 ```swift
-let url = URL(string: "http://localhost:8080/leaks?process=MyApp&filter=cycles&format=json_pretty")!
-let (data, _) = try await URLSession.shared.data(from: url)
+func pingLeaksEndpoint(
+    from testCase: XCTestCase,
+    url: URL? = nil,
+    timeout: TimeInterval = 10.0,
+    file: StaticString = #filePath,
+    line: UInt = #line
+) {
+    let effectiveURL: URL = {
+        if let url = url { return url }
+        let testName = testCase.name
+            .addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed)
+            ?? testCase.name
+        return URL(string:
+            "http://localhost:8080/leaks?process=MyApp&filter=cycles&testName=\(testName)"
+        )!
+    }()
+
+    let leaksExpectation = testCase.expectation(
+        description: "Call /leaks endpoint"
+    )
+
+    let task = URLSession.shared.dataTask(with: effectiveURL) { data, response, error in
+        XCTAssertNil(
+            error,
+            "Expected no error when calling /leaks",
+            file: file,
+            line: line
+        )
+
+        if let httpResponse = response as? HTTPURLResponse {
+            XCTAssertEqual(
+                httpResponse.statusCode,
+                200,
+                "Expected 200 OK from /leaks",
+                file: file,
+                line: line
+            )
+        }
+
+        if let data = data, let body = String(data: data, encoding: .utf8) {
+            print("Leaks endpoint output:\n\(body)")
+        }
+
+        leaksExpectation.fulfill()
+    }
+
+    task.resume()
+    testCase.wait(for: [leaksExpectation], timeout: timeout)
+}
 ```
 
-**Endpoints:**
+Then call it from your test class:
 
-| Endpoint | Description |
-|----------|-------------|
-| `GET /leaks` | Run leak analysis |
-| `GET /health` | Server health check |
+```swift
+override func tearDown() {
+    super.tearDown()
+    pingLeaksEndpoint(from: self)
+}
+```
 
-**Query parameters:** `process`, `pid`, `device`, `filter`, `format`, `testName`, `exclude`
+> **Note:** Replace `MyApp` in the URL with your app's process name.
 
-### Automated Test Runner
+---
 
-Run your XCTest suite with integrated leak detection and artifact collection:
+### Step 4: Run your tests with XCTestLeaks
+
+Use the `run` command to start the leaks server, execute your tests, and collect results in one step:
 
 ```bash
 xctestleaks run \
@@ -87,9 +117,15 @@ xctestleaks run \
   --html-output
 ```
 
-## Output Artifacts
+XCTestLeaks will:
+1. Start the leaks server
+2. Run `xcodebuild test`
+3. Collect leak reports from each test's `tearDown` call
+4. Save artifacts and generate an HTML report
 
-When leaks are detected, the `run` command produces structured artifacts:
+---
+
+## Output Artifacts
 
 ```
 leak_artifacts/
@@ -107,7 +143,7 @@ leak_artifacts/
       leak.json
 ```
 
-### Sample Artifact — `info.txt`
+### Sample: `info.txt`
 
 From a run against [Kickstarter's iOS app](https://github.com/kickstarter/ios-oss):
 
@@ -127,7 +163,7 @@ Instance Size: 320 bytes
   ...
 ```
 
-### Sample Artifact — `leak.json`
+### Sample: `leak.json`
 
 ```json
 {
@@ -148,21 +184,6 @@ Instance Size: 320 bytes
     "testName": "-[PPOProjectCardTests testFinalizeYourPledge]"
 }
 ```
-
-## How It Works
-
-1. **`xctestleaks`** invokes `xcrun simctl spawn <device> leaks <process>` to capture memory leak data from an iOS Simulator process
-2. A **token-based parser** extracts structured information — leak types, object hierarchies, sizes, and addresses
-3. Leaks are classified as **ROOT_LEAK** (standalone) or **ROOT_CYCLE** (retain cycle)
-4. In `run` mode, an internal HTTP server coordinates with XCTest — tests call the `/leaks` endpoint after each test case to snapshot leaks while context is fresh
-5. Results are saved as **per-leak artifacts** and optionally rendered into an **HTML report**
-
-## Tech Stack
-
-- **Kotlin 2.1.0** (JVM 11+)
-- **PicoCLI** — CLI framework
-- **Kotlinx Serialization** — JSON serialization
-- **JUnit 5** — testing
 
 ## License
 
