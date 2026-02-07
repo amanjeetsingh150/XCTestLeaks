@@ -58,7 +58,11 @@ final class MyFeatureTests: XCTestCase, LeakCheckable {
     }
 
     func leakCheckDidComplete(with result: LeaksResult) {
-        XCTAssertFalse(result.hasLeaks)
+        for leak in result.leaks {
+            print("Leak: \(leak.rootTypeName ?? "Unknown") (\(leak.leakType))")
+        }
+        // Uncomment to fail the test when leaks are detected:
+        // XCTAssertFalse(result.hasLeaks)
     }
 
     func testSomething() {
@@ -69,6 +73,22 @@ final class MyFeatureTests: XCTestCase, LeakCheckable {
 
 ### Step 5: Run your tests
 
+There are two ways to use XCTestLeaks:
+
+**Option A: Local development (Xcode)**
+
+Start the server in a terminal, then run your tests from Xcode as usual:
+
+```bash
+xctestleaks serve
+```
+
+Hit Cmd+U in Xcode — any test class conforming to `LeakCheckable` will automatically check for leaks after each test.
+
+**Option B: CI / Automation**
+
+Use the `run` command to do everything in one shot — starts the server, runs tests, and collects artifacts:
+
 ```bash
 xctestleaks run \
   --project ./MyApp.xcodeproj \
@@ -77,8 +97,6 @@ xctestleaks run \
   --output-dir ./leak_artifacts \
   --html-output
 ```
-
-This starts the leak server, runs `xcodebuild test`, collects leak reports after each test, and generates an HTML report.
 
 ## Output
 

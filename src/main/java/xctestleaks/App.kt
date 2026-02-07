@@ -161,6 +161,7 @@ class RunTestsCommand : Callable<Int> {
     @Option(
         names = ["--xcodebuild-args"],
         description = ["Additional arguments to pass to xcodebuild (can be repeated)."],
+        arity = "1",
     )
     var xcodebuildArgs: List<String> = emptyList()
 
@@ -352,7 +353,7 @@ class RunTestsCommand : Callable<Int> {
 @Command(
     name = "xctestleaks",
     mixinStandardHelpOptions = true,
-    version = ["xctestleaks 0.1.2"],
+    version = ["xctestleaks 0.1.3"],
     description = [
         "A wrapper around macOS leaks command for iOS simulators.",
         "",
