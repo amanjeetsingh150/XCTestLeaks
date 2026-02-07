@@ -353,7 +353,7 @@ class RunTestsCommand : Callable<Int> {
 @Command(
     name = "xctestleaks",
     mixinStandardHelpOptions = true,
-    version = ["xctestleaks 0.1.3"],
+    version = ["xctestleaks 0.1.4"],
     description = [
         "A wrapper around macOS leaks command for iOS simulators.",
         "",
@@ -534,6 +534,8 @@ class App : Callable<Int> {
 }
 
 fun main(args: Array<String>) {
-    val exitCode = CommandLine(App()).execute(*args)
+    val cmd = CommandLine(App())
+    cmd.isAllowOptionsAsOptionParameters = true
+    val exitCode = cmd.execute(*args)
     exitProcess(exitCode)
 }

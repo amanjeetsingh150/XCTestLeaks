@@ -14,8 +14,8 @@ repositories {
 }
 
 dependencies {
-    implementation("info.picocli:picocli:4.6.3")
-    implementation("info.picocli:picocli-codegen:4.6.3")
+    implementation("info.picocli:picocli:4.7.7")
+    implementation("info.picocli:picocli-codegen:4.7.7")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
 
     testImplementation(platform("org.junit:junit-bom:5.10.0"))
