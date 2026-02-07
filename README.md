@@ -35,9 +35,59 @@ In Xcode, select your **test target** → **General** → **Testing** → set **
 
 ---
 
-### Step 3: Add the leak-check helper to your test target
+### Step 3: Add the XCTestLeaksClient SPM package
 
-Add the following function to a shared test utilities file (e.g. `XCTestCase+Leaks.swift`). It pings the XCTestLeaks server in `tearDown` to capture leaks for the test that just ran:
+Add `XCTestLeaksClient` as a dependency to your **test target** via Swift Package Manager:
+
+```
+https://github.com/nicklama/xctestleaks
+```
+
+In Xcode: **File → Add Package Dependencies…** → paste the repository URL → add `XCTestLeaksClient` to your test target.
+
+Then conform your test classes to `LeakCheckable` to opt in:
+
+```swift
+import XCTestLeaksClient
+
+final class MyFeatureTests: XCTestCase, LeakCheckable {
+    // your tests — no tearDown boilerplate needed
+}
+```
+
+#### Register the observer
+
+**Option A — Programmatic (recommended):**
+
+```swift
+override class func setUp() {
+    super.setUp()
+    XCTestLeaksObserver.register()
+}
+```
+
+**Option B — NSPrincipalClass:**
+
+Add this to your test target's `Info.plist`:
+
+```xml
+<key>NSPrincipalClass</key>
+<string>XCTestLeaksClient.XCTestLeaksObserver</string>
+```
+
+The observer auto-detects your host app's process name and pings the leaks server after each test method in any `LeakCheckable` class.
+
+> **Tip:** To customize the server connection, pass a configuration:
+> ```swift
+> XCTestLeaksObserver.register(
+>     configuration: .init(host: "localhost", port: 9090, filter: "all")
+> )
+> ```
+
+<details>
+<summary><strong>Alternative: Manual setup without SPM</strong></summary>
+
+Add the following function to a shared test utilities file (e.g. `XCTestCase+Leaks.swift`):
 
 ```swift
 func pingLeaksEndpoint(
@@ -101,6 +151,8 @@ override func tearDown() {
 ```
 
 > **Note:** Replace `MyApp` in the URL with your app's process name.
+
+</details>
 
 ---
 
