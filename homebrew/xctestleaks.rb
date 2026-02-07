@@ -1,8 +1,8 @@
 class Xctestleaks < Formula
   desc "Memory leak detection tool for iOS XCTest"
   homepage "https://github.com/amanjeetsingh150/XCTestLeaks"
-  url "https://github.com/amanjeetsingh150/XCTestLeaks/releases/download/v0.1.0/xctestleaks.tar.gz"
-  sha256 "REPLACE_WITH_SHA256_FROM_RELEASE"
+  url "https://github.com/amanjeetsingh150/XCTestLeaks/releases/download/v0.1.0/xctestleaks.tar"
+  sha256 "0603aca4af8505a085d68030a17c68e62922cd28790cd03ad2fcff618ff5d7c4"
   license "MIT"
 
   depends_on "openjdk"
