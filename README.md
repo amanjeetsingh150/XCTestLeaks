@@ -1,14 +1,13 @@
 # XCTestLeaks
 
-A tool that integrates with your iOS testing workflow to surface memory leaks. It uses macOS's native `leaks` tool under the hood and currently integrates with XCTest unit tests.
+A memory leak detection tool that integrates directly with XCTest. Run your existing unit tests and get per-test leak reports powered by the macOS native `leaks` tool.
 
 ## Features
 
-- Memory leak detection per test case
-- Filter only retain cycles
-- JSON report export
-- Interactive HTML reports
-- Independent HTTP server (`xctestleaks serve`)
+- Integrates with XCTest-leak checks run automatically after each test
+- Per-test leak detection with retain cycle identification
+- Interactive HTML reports and JSON export
+- Single command to run tests and collect results
 
 ## Requirements
 
@@ -17,148 +16,58 @@ A tool that integrates with your iOS testing workflow to surface memory leaks. I
 
 ## Getting Started
 
-### Step 1: Build XCTestLeaks
+### Step 1: Install XCTestLeaks
+
+```bash
+brew install amanjeetsingh150/tap/xctestleaks
+```
+
+Or build from source:
 
 ```bash
 ./gradlew installDist
+# Binary: build/install/xctestleaks/bin/xctestleaks
 ```
 
-The binary will be available at `build/install/xctestleaks/bin/xctestleaks`.
+### Step 2: Add the Swift package to your Xcode project
 
----
-
-### Step 2: Ensure your tests are hosted on a Simulator
-
-XCTestLeaks analyzes the host app's process for leaks, so your unit tests must run inside the app on a Simulator.
-
-In Xcode, select your **test target** → **General** → **Testing** → set **Host Application** to your app target. This ensures tests execute within the app process rather than a standalone test runner.
-
----
-
-### Step 3: Add the XCTestLeaksClient SPM package
-
-Add `XCTestLeaksClient` as a dependency to your **test target** via Swift Package Manager:
+In Xcode: **File → Add Package Dependencies…** → paste the URL:
 
 ```
-https://github.com/nicklama/xctestleaks
+https://github.com/amanjeetsingh150/XCTestLeaks
 ```
 
-In Xcode: **File → Add Package Dependencies…** → paste the repository URL → add `XCTestLeaksClient` to your test target.
+Add `XCTestLeaksClient` to your **test target**.
 
-Then conform your test classes to `LeakCheckable` to opt in:
+### Step 3: Set up your test target
+
+Make sure your tests run inside the app on a Simulator. In Xcode, select your **test target** → **General** → **Testing** → set **Host Application** to your app target.
+
+### Step 4: Opt in your test classes
+
+Conform test classes to `LeakCheckable` and register the observer:
 
 ```swift
 import XCTestLeaksClient
 
 final class MyFeatureTests: XCTestCase, LeakCheckable {
-    // your tests — no tearDown boilerplate needed
-}
-```
 
-#### Register the observer
-
-**Option A — Programmatic (recommended):**
-
-```swift
-override class func setUp() {
-    super.setUp()
-    XCTestLeaksObserver.register()
-}
-```
-
-**Option B — NSPrincipalClass:**
-
-Add this to your test target's `Info.plist`:
-
-```xml
-<key>NSPrincipalClass</key>
-<string>XCTestLeaksClient.XCTestLeaksObserver</string>
-```
-
-The observer auto-detects your host app's process name and pings the leaks server after each test method in any `LeakCheckable` class.
-
-> **Tip:** To customize the server connection, pass a configuration:
-> ```swift
-> XCTestLeaksObserver.register(
->     configuration: .init(host: "localhost", port: 9090, filter: "all")
-> )
-> ```
-
-<details>
-<summary><strong>Alternative: Manual setup without SPM</strong></summary>
-
-Add the following function to a shared test utilities file (e.g. `XCTestCase+Leaks.swift`):
-
-```swift
-func pingLeaksEndpoint(
-    from testCase: XCTestCase,
-    url: URL? = nil,
-    timeout: TimeInterval = 10.0,
-    file: StaticString = #filePath,
-    line: UInt = #line
-) {
-    let effectiveURL: URL = {
-        if let url = url { return url }
-        let testName = testCase.name
-            .addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed)
-            ?? testCase.name
-        return URL(string:
-            "http://localhost:8080/leaks?process=MyApp&filter=cycles&testName=\(testName)"
-        )!
-    }()
-
-    let leaksExpectation = testCase.expectation(
-        description: "Call /leaks endpoint"
-    )
-
-    let task = URLSession.shared.dataTask(with: effectiveURL) { data, response, error in
-        XCTAssertNil(
-            error,
-            "Expected no error when calling /leaks",
-            file: file,
-            line: line
-        )
-
-        if let httpResponse = response as? HTTPURLResponse {
-            XCTAssertEqual(
-                httpResponse.statusCode,
-                200,
-                "Expected 200 OK from /leaks",
-                file: file,
-                line: line
-            )
-        }
-
-        if let data = data, let body = String(data: data, encoding: .utf8) {
-            print("Leaks endpoint output:\n\(body)")
-        }
-
-        leaksExpectation.fulfill()
+    override class func setUp() {
+        super.setUp()
+        XCTestLeaksObserver.register()
     }
 
-    task.resume()
-    testCase.wait(for: [leaksExpectation], timeout: timeout)
+    func leakCheckDidComplete(with result: LeaksResult) {
+        XCTAssertFalse(result.hasLeaks)
+    }
+
+    func testSomething() {
+        // your test — leak check runs automatically after each test
+    }
 }
 ```
 
-Then call it from your test class:
-
-```swift
-override func tearDown() {
-    super.tearDown()
-    pingLeaksEndpoint(from: self)
-}
-```
-
-> **Note:** Replace `MyApp` in the URL with your app's process name.
-
-</details>
-
----
-
-### Step 4: Run your tests with XCTestLeaks
-
-Use the `run` command to start the leaks server, execute your tests, and collect results in one step:
+### Step 5: Run your tests
 
 ```bash
 xctestleaks run \
@@ -169,15 +78,9 @@ xctestleaks run \
   --html-output
 ```
 
-XCTestLeaks will:
-1. Start the leaks server
-2. Run `xcodebuild test`
-3. Collect leak reports from each test's `tearDown` call
-4. Save artifacts and generate an HTML report
+This starts the leak server, runs `xcodebuild test`, collects leak reports after each test, and generates an HTML report.
 
----
-
-## Output Artifacts
+## Output
 
 ```
 leak_artifacts/
@@ -189,13 +92,9 @@ leak_artifacts/
       info.txt             # Human-readable summary
       raw.txt              # Raw leak output
       leak.json            # Structured leak data
-    AnyCancellable/
-      info.txt
-      raw.txt
-      leak.json
 ```
 
-### Sample: `info.txt`
+### Example output
 
 From a run against [Kickstarter's iOS app](https://github.com/kickstarter/ios-oss):
 
@@ -215,28 +114,6 @@ Instance Size: 320 bytes
   ...
 ```
 
-### Sample: `leak.json`
-
-```json
-{
-    "leakType": "ROOT_CYCLE",
-    "rootCount": 29,
-    "rootSizeHumanReadable": "1.81K",
-    "rootTypeName": "PPOProjectCardViewModel",
-    "rootInstanceSizeBytes": 320,
-    "children": [
-        {
-            "count": 8,
-            "sizeHumanReadable": "384 bytes",
-            "fieldName": "__strong rewardToggleTappedSubject",
-            "typeName": "Combine.PassthroughSubject<Swift.Bool, Swift.Never>",
-            "instanceSizeBytes": 64
-        }
-    ],
-    "testName": "-[PPOProjectCardTests testFinalizeYourPledge]"
-}
-```
-
 ## License
 
-MIT
+Apache 2.0 — see [LICENSE](LICENSE) for details.

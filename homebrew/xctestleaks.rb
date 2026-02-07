@@ -3,7 +3,7 @@ class Xctestleaks < Formula
   homepage "https://github.com/amanjeetsingh150/XCTestLeaks"
   url "https://github.com/amanjeetsingh150/XCTestLeaks/releases/download/v0.1.2/xctestleaks.tar"
   sha256 "PLACEHOLDER_UPDATE_AFTER_RELEASE"
-  license "MIT"
+  license "Apache-2.0"
 
   depends_on "openjdk"
 
