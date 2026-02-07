@@ -4,7 +4,7 @@ A memory leak detection tool that integrates directly with XCTest. Run your exis
 
 ## Demo
 
-https://github.com/amanjeetsingh150/XCTestLeaks/raw/main/assets/demo.mp4
+<video src="https://github.com/amanjeetsingh150/XCTestLeaks/raw/main/assets/demo.mp4" width="100%" controls></video>
 
 ## Features
 
