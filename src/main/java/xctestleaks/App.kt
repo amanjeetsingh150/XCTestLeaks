@@ -172,6 +172,13 @@ class RunTestsCommand : Callable<Int> {
     var processName: String? = null
 
     @Option(
+        names = ["--timeout"],
+        description = ["Timeout in seconds for the xcodebuild command (default: 3600)."],
+        defaultValue = "3600",
+    )
+    var timeout: Long = 3600
+
+    @Option(
         names = ["--no-start-server"],
         description = ["Don't start the server, assume it's already running."],
     )
@@ -190,7 +197,7 @@ class RunTestsCommand : Callable<Int> {
     var htmlOutput: Boolean = false
 
     private var server: LeaksServer? = null
-    private val xcodebuildRunner = XcodebuildRunner()
+    private val xcodebuildRunner by lazy { XcodebuildRunner(timeoutSeconds = timeout) }
     private lateinit var outputPath: Path
 
     override fun call(): Int {
@@ -202,6 +209,7 @@ class RunTestsCommand : Callable<Int> {
         println("Project: $project")
         println("Scheme: $scheme")
         println("Destination: $destination")
+        println("Timeout: ${timeout}s")
         println("Output directory: ${outputPath.toAbsolutePath()}")
         println()
 
@@ -239,6 +247,10 @@ class RunTestsCommand : Callable<Int> {
             destination = destination,
             additionalArgs = xcodebuildArgs
         )
+
+        if (xcodebuildResult.exitCode == -1) {
+            System.err.println("Error: xcodebuild timed out after ${timeout}s")
+        }
 
         // Save xcodebuild output
         val xcodebuildOutputFile = outputPath.resolve("xcodebuild_output.txt").toFile()
@@ -353,7 +365,7 @@ class RunTestsCommand : Callable<Int> {
 @Command(
     name = "xctestleaks",
     mixinStandardHelpOptions = true,
-    version = ["xctestleaks 0.1.4"],
+    version = ["xctestleaks 0.1.5"],
     description = [
         "A wrapper around macOS leaks command for iOS simulators.",
         "",
