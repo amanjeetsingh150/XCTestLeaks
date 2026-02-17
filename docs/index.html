@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>XCTestLeaks — Memory Leak Detection for iOS Tests</title>
+  <meta name="description" content="Find memory leaks in your iOS tests. Per-test leak detection powered by macOS native leaks tool, with interactive HTML reports and CI integration.">
+  <meta property="og:title" content="XCTestLeaks — Memory Leak Detection for iOS Tests">
+  <meta property="og:description" content="Per-test memory leak detection for XCTest. Find retain cycles, generate reports, and ship leak-free iOS apps.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://xctestleaks.com">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+  <!-- Navigation -->
+  <nav class="nav">
+    <div class="container">
+      <a href="#" class="nav-logo">XCTest<span>Leaks</span></a>
+      <button class="nav-toggle" aria-label="Toggle navigation">&#9776;</button>
+      <ul class="nav-links">
+        <li><a href="#features">Features</a></li>
+        <li><a href="#contributions">Contributions</a></li>
+        <li><a href="#testimonials">Testimonials</a></li>
+        <li><a href="#book">Book</a></li>
+        <li><a href="https://github.com/nicklama/xctestleaks" class="nav-cta">GitHub</a></li>
+      </ul>
+    </div>
+  </nav>
+
+  <!-- Hero -->
+  <section class="hero">
+    <div class="container">
+      <div class="hero-badge">Open Source &middot; Apache 2.0</div>
+      <h1>Find Memory Leaks<br>in Your iOS Tests</h1>
+      <p>Per-test memory leak detection for XCTest, powered by the native macOS <code>leaks</code> tool. Catch retain cycles before they ship.</p>
+      <div class="hero-buttons">
+        <a href="https://github.com/amanjeetsingh150/XCTestLeaks" class="btn-primary">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>
+          Get Started
+        </a>
+        <a href="#book" class="btn-secondary">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+          Upcoming Book
+        </a>
+      </div>
+      <div class="hero-terminal">
+        <code>
+          <span class="cmd">$</span> brew install amanjeetsingh150/tap/xctestleaks<br>
+          <span class="cmd">$</span> xctestleaks run <span class="flag">--project</span> MyApp.xcodeproj <span class="flag">--scheme</span> MyAppTests <span class="flag">--destination</span> "platform=iOS Simulator,name=iPhone 16"<br>
+          <br>
+          <span style="color: var(--success);">&#10003;</span> 12 tests run &middot; <span style="color: #e17055;">3 leaks detected</span> &middot; <span style="color: var(--accent-light);">2 retain cycles found</span><br>
+          <span style="color: var(--text-muted);">Report saved to leak_artifacts/report.html</span>
+        </code>
+      </div>
+    </div>
+  </section>
+
+  <!-- Features -->
+  <section class="section" id="features">
+    <div class="container">
+      <div class="section-header">
+        <div class="section-label">Features</div>
+        <h2>Built for Real iOS Testing</h2>
+        <p>Everything you need to catch memory leaks in your test suite, from local development to CI.</p>
+      </div>
+      <div class="features-grid">
+        <div class="feature-card">
+          <div class="feature-icon">&#128269;</div>
+          <h3>Per-Test Leak Detection</h3>
+          <p>Every test method gets its own leak check. Know exactly which test introduced a memory leak, not just that one exists somewhere.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">&#128260;</div>
+          <h3>Retain Cycle Identification</h3>
+          <p>Distinguish between simple root leaks and circular references. XCTestLeaks identifies retain cycles so you can trace the exact reference chain.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">&#128202;</div>
+          <h3>Interactive HTML Reports</h3>
+          <p>Beautiful dark-themed reports with filtering by leak type, expandable details, and per-leak artifact exports in JSON and raw format.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">&#9881;&#65039;</div>
+          <h3>CI Ready</h3>
+          <p>Single command to run your full test suite with leak detection. Generates structured artifacts perfect for CI pipelines and automated workflows.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Contributions -->
+  <section class="section" id="contributions">
+    <div class="container">
+      <div class="section-header">
+        <div class="section-label">Real-World Impact</div>
+        <h2>Leaks Found & Fixed in Open Source</h2>
+        <p>Memory leaks discovered using XCTestLeaks in major open-source projects, with fixes contributed upstream.</p>
+      </div>
+      <div class="contributions-list">
+
+        <!-- Firefox -->
+        <div class="contribution-project">
+          <div class="project-header">
+            <div class="project-logo">&#128293;</div>
+            <div>
+              <h3>Firefox for iOS</h3>
+              <span>mozilla-mobile/firefox-ios</span>
+            </div>
+          </div>
+          <ul class="pr-list">
+            <li class="pr-item">
+              <span class="pr-badge merged">Merged</span>
+              <span class="pr-title">Fix memory leak in tab manager retain cycle</span>
+              <a href="#" class="pr-link" title="Replace with actual PR link">#0000</a>
+            </li>
+            <li class="pr-item">
+              <span class="pr-badge merged">Merged</span>
+              <span class="pr-title">Fix bookmark coordinator strong reference cycle</span>
+              <a href="#" class="pr-link" title="Replace with actual PR link">#0000</a>
+            </li>
+            <li class="pr-item">
+              <span class="pr-badge open">Open</span>
+              <span class="pr-title">Fix toolbar delegate retain cycle causing leak</span>
+              <a href="#" class="pr-link" title="Replace with actual PR link">#0000</a>
+            </li>
+          </ul>
+        </div>
+
+        <!-- Placeholder for future projects -->
+        <!--
+        <div class="contribution-project">
+          <div class="project-header">
+            <div class="project-logo">&#128640;</div>
+            <div>
+              <h3>Project Name</h3>
+              <span>org/repo</span>
+            </div>
+          </div>
+          <ul class="pr-list">
+            <li class="pr-item">
+              <span class="pr-badge merged">Merged</span>
+              <span class="pr-title">Description of fix</span>
+              <a href="#" class="pr-link">#0000</a>
+            </li>
+          </ul>
+        </div>
+        -->
+
+      </div>
+    </div>
+  </section>
+
+  <!-- Testimonials -->
+  <section class="section" id="testimonials">
+    <div class="container">
+      <div class="section-header">
+        <div class="section-label">Testimonials</div>
+        <h2>What People Are Saying</h2>
+      </div>
+      <div class="testimonials-list">
+
+        <div class="testimonial">
+          <div class="testimonial-avatar">
+            <!-- Replace with: <img src="assets/avatar1.jpg" alt="Name"> -->
+            &#128100;
+          </div>
+          <div class="testimonial-content">
+            <blockquote>
+              <strong>"Finally, a tool that makes leak detection part of the test workflow."</strong>
+              Running leaks manually after every change was unsustainable. XCTestLeaks made it automatic and caught things we'd been missing for months.
+            </blockquote>
+            <div class="testimonial-author">
+              <span class="name">Name Here</span>
+              <span class="title">&mdash; Senior iOS Engineer @ Company</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="testimonial">
+          <div class="testimonial-avatar">
+            &#128100;
+          </div>
+          <div class="testimonial-content">
+            <blockquote>
+              <strong>"The per-test granularity is a game changer."</strong>
+              We went from "there's a leak somewhere in 200 tests" to knowing exactly which test method introduced it. Saved us hours of debugging.
+            </blockquote>
+            <div class="testimonial-author">
+              <span class="name">Name Here</span>
+              <span class="title">&mdash; iOS Tech Lead @ Company</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="testimonial">
+          <div class="testimonial-avatar">
+            &#128100;
+          </div>
+          <div class="testimonial-content">
+            <blockquote>
+              <strong>"We integrated it into our CI pipeline in under 10 minutes."</strong>
+              The single-command interface and structured JSON output made it trivial to add to our existing GitHub Actions workflow.
+            </blockquote>
+            <div class="testimonial-author">
+              <span class="name">Name Here</span>
+              <span class="title">&mdash; Platform Engineer @ Company</span>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- Book / Waitlist CTA -->
+  <section class="section" id="book">
+    <div class="container">
+      <div class="book-cta">
+        <div class="section-label">Coming Soon</div>
+        <h2>The iOS Memory Leaks Book</h2>
+        <p>A deep dive into memory management, leak patterns, retain cycles, and testing strategies for iOS. From the creator of XCTestLeaks.</p>
+        <form class="waitlist-form" action="#" method="POST">
+          <input type="email" placeholder="you@email.com" required aria-label="Email address">
+          <button type="submit">Join Waitlist</button>
+        </form>
+      </div>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer class="footer">
+    <div class="container">
+      <div class="footer-copy">&copy; 2026 XCTestLeaks. Built by <a href="https://www.amanjeet.me/">Amanjeet Singh</a>.</div>
+      <ul class="footer-links">
+        <li><a href="https://github.com/amanjeetsingh150/XCTestLeaks">GitHub</a></li>
+        <li><a href="https://www.amanjeet.me/">Blog</a></li>
+        <li><a href="https://twitter.com/amanjeetxsingh">Twitter</a></li>
+      </ul>
+    </div>
+  </footer>
+
+  <script>
+    // Mobile nav toggle
+    document.querySelector('.nav-toggle').addEventListener('click', function () {
+      document.querySelector('.nav-links').classList.toggle('active');
+    });
+
+    // Close mobile nav on link click
+    document.querySelectorAll('.nav-links a').forEach(function (link) {
+      link.addEventListener('click', function () {
+        document.querySelector('.nav-links').classList.remove('active');
+      });
+    });
+  </script>
+
+</body>
+</html>
